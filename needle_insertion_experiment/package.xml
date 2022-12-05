@@ -12,6 +12,7 @@
   <exec_depend>needle_shape_publisher</exec_depend>
   <exec_depend>insertion_point_publisher</exec_depend>
   <exec_depend>pgr_stereo_camera</exec_depend>
+  <exec_depend>needle_shape_gt</exec_depend>
 
   <test_depend>ament_copyright</test_depend>
   <test_depend>ament_flake8</test_depend>

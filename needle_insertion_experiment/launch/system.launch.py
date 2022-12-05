@@ -14,6 +14,7 @@ pkg_needle_shape_publisher = FindPackageShare( 'needle_shape_publisher' )
 pkg_insertion_robot        = FindPackageShare( 'needle_insertion_robot' )
 pkg_insertion_point        = FindPackageShare( 'insertion_point_publisher' )
 pkg_stereo_camera          = FindPackageShare( 'pgr_stereo_camera' )
+pkg_needle_gt_shape          = FindPackageShare( 'needle_shape_gt' )
 
 def generate_launch_description():
     ld = LaunchDescription()
@@ -77,7 +78,7 @@ def generate_launch_description():
     )
     arg_camera_imgproc = DeclareLaunchArgument(
         'camera_useImageProc',
-        default_value='true',
+        default_value='false',
         choices=['true', 'false'],
         description="Camera: Whether to use image processing ROS publishing for image rectification or not."
     )
@@ -168,6 +169,15 @@ def generate_launch_description():
         }.items(),
     )
 
+    # - gt shape from stereo vision
+    launch_shape_stereo_gt = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            PathJoinSubstitution([
+                pkg_needle_gt_shape, 'launch', 'needle_reconstruct.launch.py'
+            ]),
+        )
+    )
+
     # - ros2 bag for data collection
     launch_recorddata = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
@@ -217,7 +227,8 @@ def generate_launch_description():
     ld.add_action( launch_robot )
     ld.add_action( launch_insertionpoint )
     ld.add_action( launch_stereocamera )
-    
+    ld.add_action( launch_shape_stereo_gt )
+
 
     return ld
 
