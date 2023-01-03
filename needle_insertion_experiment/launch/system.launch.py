@@ -38,10 +38,16 @@ def generate_launch_description():
         default_value="15",
         description="Needle: The maximum number of iterations for needle shape optimizer."
         )
+    
+    arg_needle_temp_compensate = DeclareLaunchArgument(
+        'needle_tempCompensate',
+        default_value="True",
+        description="Needle: Whether to perform temperature compensation or not."
+        )
 
     arg_needle_paramFile = DeclareLaunchArgument(
         'needle_needleParamFile',
-        default_value="needle_params_2021-08-16_Jig-Calibration_best.json",
+        default_value="needle_params_2022-12-11_Jig-Calibration.json", #"needle_params_2021-08-16_Jig-Calibration_best.json",
         description="Needle: JSON parameter file for FBG Needle"
     )
 
@@ -127,6 +133,7 @@ def generate_launch_description():
             'numSignals'              : LaunchConfiguration( 'needle_numSignals' ),
             'optimMaxIterations'      : LaunchConfiguration( 'needle_optimMaxIterations' ),
             'interrogatorIP'          : LaunchConfiguration( 'interrogator_ipAddress' ),
+            'tempCompensate'          : LaunchConfiguration( 'needle_tempCompensate' ),
         }.items(),
     )
 
@@ -201,6 +208,7 @@ def generate_launch_description():
     ld.add_action( arg_needle_numsignals )
     ld.add_action( arg_needle_optim_maxiter )
     ld.add_action( arg_needle_paramFile )
+    ld.add_action( arg_needle_temp_compensate )
 
     # -- interrogator
     ld.add_action( arg_interrogator_ip )
@@ -226,8 +234,8 @@ def generate_launch_description():
     ld.add_action( launch_needle )
     ld.add_action( launch_robot )
     ld.add_action( launch_insertionpoint )
-    ld.add_action( launch_stereocamera )
-    ld.add_action( launch_shape_stereo_gt )
+    #ld.add_action( launch_stereocamera )
+    # ld.add_action( launch_shape_stereo_gt )
 
 
     return ld

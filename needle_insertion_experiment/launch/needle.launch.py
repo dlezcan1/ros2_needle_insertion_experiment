@@ -31,13 +31,22 @@ def generate_launch_description():
 
     # determine #chs and numAAs
     numCHs, numAAs = None, None
-    default_needleparam_file = "needle_params_2021-08-16_Jig-Calibration_best.json"
+    default_needleparam_file = "needle_params_2022-12-11_Jig-Calibration.json" #"needle_params_2021-08-16_Jig-Calibration_best.json" 
     for arg in sys.argv:
         if arg.startswith("needleParamFile:="):
             needleParamFile = arg.split(":=")[1]
             break
         # if        
     # for 
+
+    # check to see if there exists a persistent needle parameter file
+    default_needleparam_file_persistent = os.path.join(
+        pkg_needle_shape_publisher, 
+        "needle_data", 
+        default_needleparam_file.replace(".json", "-ref-wavelength-latest.json")
+    )
+    if os.path.isfile(default_needleparam_file_persistent):
+        default_needleparam_file = default_needleparam_file_persistent
 
     if numCHs is None and numAAs is None: # just in-case using default value
         needleParamFile = default_needleparam_file
@@ -61,6 +70,9 @@ def generate_launch_description():
     arg_optim_maxiter = DeclareLaunchArgument( 'optimMaxIterations', default_value="15",
                                                description="The maximum number of iterations for needle shape optimizer." )
 
+    arg_temp_compensate = DeclareLaunchArgument( 'tempCompensate', default_value="True",
+                                               description="Whether to perform temperature compensation or not." )
+
     # - interrogator arguments                            
     arg_interrIP = DeclareLaunchArgument('interrogatorIP', 
                                          default_value='192.168.1.11',
@@ -70,6 +82,7 @@ def generate_launch_description():
                                                       description='Interrogator parameter file to use in sm130_interrogator local share directory. This overrides all arguments.' )
 
     # other launch files
+    # - needle shape publisher
     ld_needlepub = IncludeLaunchDescription( # needle shape publisher
             PythonLaunchDescriptionSource(
                os.path.join(pkg_needle_shape_publisher, 'sensorized_shapesensing_needle_decomposed.launch.py')
@@ -78,41 +91,22 @@ def generate_launch_description():
                 'needleParamFile'   : PathJoinSubstitution( [pkg_needle_shape_publisher, "needle_data", LaunchConfiguration( 'needleParamFile')]),
                 'numSignals'        : LaunchConfiguration('numSignals'),
                 'optimMaxIterations': LaunchConfiguration('optimMaxIterations'),
+                'tempCompensate': LaunchConfiguration('tempCompensate'),
             }.items()
     )
 
-    # # - interrogator launching
-    # ld_demo_interrogator = IncludeLaunchDescription( # demo FBG interrogator
-    #         PythonLaunchDescriptionSource(
-    #             os.path.join(pkg_fbg_interrogator, 'sm130_demo.launch.py')
-    #             ),
-    #             condition=conditions.IfCondition(
-    #            PythonExpression([LaunchConfiguration('sim_level_needle_sensing'), " == 1"])),
-    #            launch_arguments = {'ip': LaunchConfiguration('interrogatorIP'), 
-    #                                'numCH': TextSubstitution(text=str(numCHs)), 
-    #                                'numAA': TextSubstitution(text=str(numAAs))}.items()
-    #         )
-
-    # # FBG Interrogator 
-    # ld_fbg_interrogator = IncludeLaunchDescription( # real FBG interrogator
-    #         PythonLaunchDescriptionSource(
-    #             os.path.join(pkg_fbg_interrogator, 'sm130_interrogator.launch.py')
-    #             ),
-    #             condition=conditions.IfCondition(
-    #            PythonExpression([LaunchConfiguration('sim_level_needle_sensing'), " == 2"])),
-    #            launch_arguments = {'ip': LaunchConfiguration('interrogatorIP')}.items()
-    # )
-
+    # - interrogator launching
     ld_interrogator = IncludeLaunchDescription(
             PythonLaunchDescriptionSource(
                 PathJoinSubstitution( [pkg_fbg_interrogator, 'sm130.launch.py'] )
             ),
             launch_arguments = {
                     'sim_level_interrogator': LaunchConfiguration('sim_level_needle_sensing'),
-                    'ip': LaunchConfiguration('interrogatorIP'),
-                    'numCH': TextSubstitution(text=str(numCHs)), 
-                    'numAA': TextSubstitution(text=str(numAAs)),
-                    'paramFile': LaunchConfiguration('interrogatorParamFile'),
+                    'ip'                    : LaunchConfiguration('interrogatorIP'),
+                    'numCH'                 : TextSubstitution(text=str(numCHs)), 
+                    'numAA'                 : TextSubstitution(text=str(numAAs)),
+                    'paramFile'             : LaunchConfiguration('interrogatorParamFile'),
+                    'needleParamFile'       : LaunchConfiguration('needleParamFile'),
             }.items()
     )
 
@@ -122,6 +116,7 @@ def generate_launch_description():
     ld.add_action(arg_needleparams)
     ld.add_action(arg_numsignals)
     ld.add_action(arg_optim_maxiter)
+    ld.add_action(arg_temp_compensate)
 
     ld.add_action(arg_interrIP)
     ld.add_action(arg_interrogatorparams)
