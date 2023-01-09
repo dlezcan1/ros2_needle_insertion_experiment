@@ -59,6 +59,6 @@ Arguments are as follows
 * `sim_level_needle_sensing`: 1 for demo needle shape publishing, 2 for real hardware interfaces. This path is relative to `needle_shape_publisher` `share` folder.
 * `needleParamFile`: JSON parameter file for needle shape-sensing package to load shape-sensing needle.
 * `numSignals`: Number of signals to perform calibration of signals and to keep on a moving average for curvature windowing.
-* `optimMaxIteations`: Number of iterations for optimization to stop optimizing. Lower is faster, higher is more accurate
+* `optimMaxIterations`: Number of iterations for optimization to stop optimizing. Lower is faster, higher is more accurate
 * `interrogatorIP`: IP address of the sm130 interrogator. 
 * `interrogatorParamFile`: ROS 2 parameter file to override other ROS 2 parameters for sm130 interrogator. This path is relative to `sm130_interrogator_py` `share` folder.
