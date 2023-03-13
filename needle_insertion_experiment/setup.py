@@ -22,6 +22,7 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
+            f"experiment_controller = {package_name}.experimental_insertions:main"
         ],
     },
 )

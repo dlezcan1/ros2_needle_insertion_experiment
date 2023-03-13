@@ -2,7 +2,7 @@ import time
 import rclpy
 
 from rclpy.action import ActionClient
-from rclpy.node import Node
+from rclpy.node import Node, Publisher
 from rclpy.parameter import Parameter
 
 from std_msgs.msg import Bool, Float32
@@ -20,16 +20,17 @@ class InsertionExperimentControllerNode(Node):
         # current parameters
         self._current_insdepth_idx = 0
         self.ax_x_pos, self.ax_y_pos, self.ax_ls_pos = 0, 0, 0
+        self.ax_x_moving, self.ax_y_moving, self.ax_ls_moving = False, False, False
 
         # ROS parameters
         # - communication
-        robot_ns = self.declare_parameter("robot.ns", value="")
+        robot_ns = self.declare_parameter("robot.ns", value="").get_parameter_value().string_value
 
         # - experimental
         self.insertion_depths = self.declare_parameter( "insertion.depths" ).get_parameter_value().double_array_value
         assert len(self.insertion_depths) > 0, "Need insertion depths!"
 
-        self.ax_x_max = self.declare_parameter("insertion.x.max", value=35).get_parameter_value().double_value
+        self.ax_x_max = self.declare_parameter("insertion.x.max", value=35.0).get_parameter_value().double_value
         assert self.ax_x_max > 0, f"X-axis max must be > 0. {self.ax_x_max} <= 0!"
 
         self.y_increment = self.declare_parameter( "lateral.increment" ).get_parameter_value().double_value
@@ -38,17 +39,39 @@ class InsertionExperimentControllerNode(Node):
         self.sub_x_pos  = self.create_subscription(
             Float32, 
             f"{robot_ns}/axis/position/x",
-            lambda msg: self.sub_position_callback(msg, self.X_AXIS_NAME)
+            lambda msg: self.sub_position_callback(msg, self.X_AXIS_NAME),
+            10,
         )
         self.sub_y_pos  = self.create_subscription(
             Float32, 
             f"{robot_ns}/axis/position/y",
-            lambda msg: self.sub_position_callback(msg, self.Y_AXIS_NAME)
+            lambda msg: self.sub_position_callback(msg, self.Y_AXIS_NAME),
+            10,
         )
         self.sub_ls_pos = self.create_subscription(
             Float32, 
             f"{robot_ns}/axis/position/linear_stage",
-            lambda msg: self.sub_position_callback(msg, self.LS_AXIS_NAME)
+            lambda msg: self.sub_position_callback(msg, self.LS_AXIS_NAME),
+            10,
+        )
+
+        self.sub_x_moving  = self.create_subscription(
+            Bool, 
+            f"{robot_ns}/axis/moving/x",
+            lambda msg: self.sub_moving_callback(msg, self.X_AXIS_NAME),
+            10,
+        )
+        self.sub_y_moving  = self.create_subscription(
+            Bool, 
+            f"{robot_ns}/axis/moving/y",
+            lambda msg: self.sub_moving_callback(msg, self.Y_AXIS_NAME),
+            10,
+        )
+        self.sub_ls_moving = self.create_subscription(
+            Bool, 
+            f"{robot_ns}/axis/moving/linear_stage",
+            lambda msg: self.sub_moving_callback(msg, self.LS_AXIS_NAME),
+            10,
         )
 
         # publishers
@@ -70,6 +93,34 @@ class InsertionExperimentControllerNode(Node):
         
     # __init__
 
+    def command_robot(self, x=None, y=None, ls=None):
+        dts_sleep = 0.1
+        if x is not None:
+            self.pub_x_cmd.publish(Float32(data=x))
+            time.sleep(dts_sleep)
+            while self.ax_x_moving:
+                time.sleep(dts_sleep)
+
+        # if: x
+
+        if y is not None:
+            self.pub_y_cmd.publish(Float32(data=y))
+            time.sleep(dts_sleep)
+            while self.ax_y_moving:
+                time.sleep(dts_sleep)
+
+        # if: y
+
+        if ls is not None:
+            self.pub_ls_cmd.publish(Float32(data=ls))
+            time.sleep(dts_sleep)
+            while self.ax_ls_moving:
+                time.sleep(dts_sleep)
+
+        # if: ls
+
+    # command_robot
+
     def command_insertion_depth(self, depth):
         """ Command the robot to a specified insertion depth """
         x_ax_pos  = min(depth, self.ax_x_max)
@@ -78,8 +129,7 @@ class InsertionExperimentControllerNode(Node):
         self.get_logger().info(
             f"Commanding insertion depth to {depth} mm | X->{x_ax_pos} mm and LS->{ls_ax_pos} mm"
         )
-        self.pub_x_cmd.publish(Float32(data=x_ax_pos))
-        self.pub_ls_cmd.publish(Float32(data=ls_ax_pos)) 
+        self.command_robot(x=x_ax_pos, ls=ls_ax_pos)
 
     # command_insertion_depth
 
@@ -101,7 +151,7 @@ class InsertionExperimentControllerNode(Node):
             )
 
         else:
-            self.get_logger.info(
+            self.get_logger().info(
                 f"Next step is a new insertion trial!"
             )
 
@@ -109,19 +159,28 @@ class InsertionExperimentControllerNode(Node):
 
     def handle_keyinput(self, keyinput: str):
         if self.isfloat(keyinput):
-            self.command_insertion_depth(keyinput)
+            self.command_insertion_depth(float(keyinput))
 
         elif keyinput.lower() == "reset":
             self.reset_insertion()
+        
+        elif keyinput.lower() == "quit":
+            return False
+        
+        elif keyinput == "":
+            self.command_next_insertion_depth()
 
         else:
-            self.command_next_insertion_depth()
+            self.get_logger().warn(f"'{keyinput}' is not a valid command!")
+
+        return True
 
     # handle_keyinput
 
     def increment_y_axis(self):
         self.get_logger().info(f"Incrementing y-axis for {self.y_increment} mm")
-        self.pub_y_cmd.publish(Float32(data=self.y_increment))
+        # self.pub_y_cmd.publish(Float32(data=self.y_increment))
+        self.command_robot(y=self.y_increment)
 
     # increment_y_axis
 
@@ -160,8 +219,25 @@ def main(args=None):
     ins_expmt_ctrl_node = InsertionExperimentControllerNode()
 
     try:
-        while True:
-            break
+        continue_expmt = True
+        while continue_expmt:
+            print(
+                "Commands:\n"
+                + "\n".join(
+                    map(
+                        lambda s: f"\t- {s}",
+                        [
+                            "'reset' to reset insertion trial",
+                            "Floating point number to command to specified insertion depth",
+                            "'quit' to quit this controller",
+                            "[ENTER] to command to next insertion trial"
+                        ]
+                    )
+                )
+            )
+            key_inp = input("Input: ")
+            continue_expmt = ins_expmt_ctrl_node.handle_keyinput(key_inp)
+            print()
 
     finally:
         ins_expmt_ctrl_node.destroy_node()
