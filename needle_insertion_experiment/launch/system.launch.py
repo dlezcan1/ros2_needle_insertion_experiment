@@ -71,6 +71,12 @@ def generate_launch_description():
     )
 
     # - stereo camera system
+    arg_camera_vis    = DeclareLaunchArgument(
+        'camera_visualization',
+        default_value='false',
+        choices=['true', 'false'],
+        description="Camera: Whether to use stereo visualization or not",
+    )
     arg_camera_ns = DeclareLaunchArgument(
         'camera_ns',
         default_value='camera',
@@ -174,6 +180,7 @@ def generate_launch_description():
             'syncStereo'  : LaunchConfiguration('camera_syncStereo'),
             'useImageProc': LaunchConfiguration('camera_useImageProc'),
         }.items(),
+        condition=LaunchConfiguration('camera_visualization', 'true'),
     )
 
     # - gt shape from stereo vision
@@ -182,7 +189,8 @@ def generate_launch_description():
             PathJoinSubstitution([
                 pkg_needle_gt_shape, 'launch', 'needle_reconstruct.launch.py'
             ]),
-        )
+        ),
+        condition=LaunchConfiguration('camera_visualization', 'true'),
     )
 
     # - ros2 bag for data collection
@@ -218,6 +226,7 @@ def generate_launch_description():
     ld.add_action( arg_robot_ns )
 
     # -- stereo camera system
+    ld.add_action( arg_camera_vis )
     ld.add_action( arg_camera_ns )
     ld.add_action( arg_camera_sync )
     ld.add_action( arg_camera_imgproc )
@@ -234,8 +243,8 @@ def generate_launch_description():
     ld.add_action( launch_needle )
     ld.add_action( launch_robot )
     ld.add_action( launch_insertionpoint )
-    #ld.add_action( launch_stereocamera )
-    # ld.add_action( launch_shape_stereo_gt )
+    ld.add_action( launch_stereocamera )
+    ld.add_action( launch_shape_stereo_gt )
 
 
     return ld

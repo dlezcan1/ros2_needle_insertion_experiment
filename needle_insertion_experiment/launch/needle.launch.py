@@ -85,13 +85,13 @@ def generate_launch_description():
     # - needle shape publisher
     ld_needlepub = IncludeLaunchDescription( # needle shape publisher
             PythonLaunchDescriptionSource(
-               os.path.join(pkg_needle_shape_publisher, 'sensorized_shapesensing_needle_decomposed.launch.py')
+               os.path.join(pkg_needle_shape_publisher, 'needle.launch.py')
             ),
             launch_arguments = {
                 'needleParamFile'   : PathJoinSubstitution( [pkg_needle_shape_publisher, "needle_data", LaunchConfiguration( 'needleParamFile')]),
                 'numSignals'        : LaunchConfiguration('numSignals'),
                 'optimMaxIterations': LaunchConfiguration('optimMaxIterations'),
-                'tempCompensate': LaunchConfiguration('tempCompensate'),
+                'tempCompensate'    : LaunchConfiguration('tempCompensate'),
             }.items()
     )
 
