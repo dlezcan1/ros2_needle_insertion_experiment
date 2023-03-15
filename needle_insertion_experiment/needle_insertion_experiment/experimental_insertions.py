@@ -34,6 +34,13 @@ class InsertionExperimentControllerNode(Node):
         assert self.ax_x_max > 0, f"X-axis max must be > 0. {self.ax_x_max} <= 0!"
 
         self.y_increment = self.declare_parameter( "lateral.increment" ).get_parameter_value().double_value
+        
+        # action client
+        self.actionclient_robot = ActionClient(
+            self,
+            MoveStage,
+            f"{robot_ns}/move_stage"
+        )
 
         # subscriptions
         self.sub_x_pos  = self.create_subscription(
@@ -94,30 +101,33 @@ class InsertionExperimentControllerNode(Node):
     # __init__
 
     def command_robot(self, x=None, y=None, ls=None):
-        dts_sleep = 0.1
+        goal_msg = MoveStage.Goal()
+        goal_msg.eps = 1e-4
+
+        goal_msg.move_x            = False
+        goal_msg.move_y            = False
+        goal_msg.move_z            = False
+        goal_msg.move_linear_stage = False
+
         if x is not None:
-            self.pub_x_cmd.publish(Float32(data=x))
-            time.sleep(dts_sleep)
-            while self.ax_x_moving:
-                time.sleep(dts_sleep)
+            goal_msg.x = x
+            goal_msg.move_x = True
 
-        # if: x
-
+        # if
         if y is not None:
-            self.pub_y_cmd.publish(Float32(data=y))
-            time.sleep(dts_sleep)
-            while self.ax_y_moving:
-                time.sleep(dts_sleep)
+            goal_msg.y = y
+            goal_msg.move_y = True
 
-        # if: y
-
+        # if
         if ls is not None:
-            self.pub_ls_cmd.publish(Float32(data=ls))
-            time.sleep(dts_sleep)
-            while self.ax_ls_moving:
-                time.sleep(dts_sleep)
+            goal_msg.linear_stage = ls
+            goal_msg.move_linear_stage = True
 
-        # if: ls
+        # if
+        
+        future = self.actionclient_robot.send_goal_async(goal_msg)
+
+        rclpy.spin_until_future_complete(self.actionclient_robot, future)
 
     # command_robot
 
@@ -180,7 +190,7 @@ class InsertionExperimentControllerNode(Node):
     def increment_y_axis(self):
         self.get_logger().info(f"Incrementing y-axis for {self.y_increment} mm")
         # self.pub_y_cmd.publish(Float32(data=self.y_increment))
-        self.command_robot(y=self.y_increment)
+        self.command_robot(y=self.ax_y_pos + self.y_increment)
 
     # increment_y_axis
 
@@ -236,7 +246,9 @@ def main(args=None):
                 )
             )
             key_inp = input("Input: ")
+            rclpy.spin_once(ins_expmt_ctrl_node, timeout_sec=5)
             continue_expmt = ins_expmt_ctrl_node.handle_keyinput(key_inp)
+            rclpy.spin_once(ins_expmt_ctrl_node, timeout_sec=5)
             print()
 
     finally:
