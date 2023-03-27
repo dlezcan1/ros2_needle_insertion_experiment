@@ -7,6 +7,8 @@ from rclpy.parameter import Parameter
 
 from std_msgs.msg import Bool, Float32
 
+from . import utilities
+
 from needle_insertion_robot_translation_interfaces.action import MoveStage
 
 class InsertionExperimentControllerNode(Node):
@@ -168,7 +170,7 @@ class InsertionExperimentControllerNode(Node):
     # def
 
     def handle_keyinput(self, keyinput: str):
-        if self.isfloat(keyinput):
+        if utilities.isfloat(keyinput):
             self.command_insertion_depth(float(keyinput))
 
         elif keyinput.lower() == "reset":
@@ -210,16 +212,6 @@ class InsertionExperimentControllerNode(Node):
             self.ax_ls_pos = float(msg.data)
 
     # sub_position_callback
-
-    @staticmethod
-    def isfloat(s: str):
-        try:
-            float(s)
-            return True
-        except ValueError:
-            return False
-        
-    # isfloat
 
 # class: InsertionExperimentControllerNode
 
