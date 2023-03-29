@@ -191,16 +191,13 @@ class JigCalibratorNode(Node):
     def handle_state(self):
         self.node_state.log_state()
         commands = (
-            "[Jig Calibration] Commands:"
-            "\n".join(
-                map(
-                    lambda s: f"\t- {s}",
-                    [
-                        "[ENTER] to command to next insertion trial",
-                        "'quit' to quit this calibration",
-                        "<float for curvature>, <float for angle> to set curvature and angle",
-                    ]    
-                )
+            "[Jig Calibration] Commands:\n" +
+            "\n\t- ".join(
+                [
+                    "[ENTER] to command to next insertion trial",
+                    "'quit' to quit this calibration",
+                    "<float for curvature>, <float for angle> to set curvature and angle",
+                ]    
             )
         )
         print(commands)
@@ -223,7 +220,7 @@ class JigCalibratorNode(Node):
         path = os.path.join(
             self.outdir,
             f"{self.node_state.current_angle}_deg",
-            f"{self.node_state.current_curvature:.1f}",
+            f"{self.node_state.current_curvature}",
             f"fbgdata_{file_append}.txt"
         )
 
