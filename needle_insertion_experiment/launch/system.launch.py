@@ -47,7 +47,7 @@ def generate_launch_description():
 
     arg_needle_paramFile = DeclareLaunchArgument(
         'needle_needleParamFile',
-        default_value="needle_params_2022-12-11_Jig-Calibration.json", #"needle_params_2021-08-16_Jig-Calibration_best.json",
+        default_value="7CH-4AA-0001-MCF-even_needle_params_2023-03-29_Jig-Calibration_best.json", #"needle_params_2021-08-16_Jig-Calibration_best.json",
         description="Needle: JSON parameter file for FBG Needle"
     )
 
@@ -61,7 +61,7 @@ def generate_launch_description():
     # - robot
     arg_robot_ip = DeclareLaunchArgument(
         'robot_ipAddress',
-        default_value="192.168.1.201",
+        default_value="192.168.1.33",
         description="Robot: IP Address of Galil Controller"
     )
     arg_robot_ns = DeclareLaunchArgument(
@@ -180,7 +180,7 @@ def generate_launch_description():
             'syncStereo'  : LaunchConfiguration('camera_syncStereo'),
             'useImageProc': LaunchConfiguration('camera_useImageProc'),
         }.items(),
-        condition=LaunchConfiguration('camera_visualization', 'true'),
+        condition=LaunchConfigurationEquals('camera_visualization', 'true'),
     )
 
     # - gt shape from stereo vision
@@ -190,7 +190,7 @@ def generate_launch_description():
                 pkg_needle_gt_shape, 'launch', 'needle_reconstruct.launch.py'
             ]),
         ),
-        condition=LaunchConfiguration('camera_visualization', 'true'),
+        condition=LaunchConfigurationEquals('camera_visualization', 'true'),
     )
 
     # - ros2 bag for data collection

@@ -156,15 +156,16 @@ class InsertionExperimentControllerNode(Node):
             self.get_logger().info("Beginning new insertion trial!")
             self.increment_y_axis()
             self._current_insdepth_idx = 0
+            return
         
         # if
 
         self.command_insertion_depth(self.insertion_depths[self._current_insdepth_idx])
         
         self._current_insdepth_idx += 1
-        if self._current_insdepth_idx < len(self.insertion_depths) - 1:
+        if self._current_insdepth_idx < len(self.insertion_depths):
             self.get_logger().info(
-                f"Next insertion depth is: {self.insertion_depths[self._current_insdepth_idx + 1]} mm"
+                f"Next insertion depth is: {self.insertion_depths[self._current_insdepth_idx]} mm"
             )
 
         else:

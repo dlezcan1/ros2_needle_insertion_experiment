@@ -11,6 +11,7 @@ from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch_ros.substitutions import FindPackageShare
 
 pkg_fbg_interrogator = FindPackageShare('sm130_interrogator_py')
+pkg_hyperion_fbg_interrogator = FindPackageShare('hyperion_interrogator')
 pkg_needle_shape_publisher = get_package_share_directory('needle_shape_publisher')
 
 def determineCHsAAs(needleParamFile: str):
@@ -31,7 +32,7 @@ def generate_launch_description():
 
     # determine #chs and numAAs
     numCHs, numAAs = None, None
-    default_needleparam_file = "needle_params_2022-12-11_Jig-Calibration.json" #"needle_params_2021-08-16_Jig-Calibration_best.json" 
+    default_needleparam_file = "7CH-4AA-0001-MCF-even_needle_params_2023-03-29_Jig-Calibration_best.json" #"needle_params_2021-08-16_Jig-Calibration_best.json" 
     for arg in sys.argv:
         if arg.startswith("needleParamFile:="):
             needleParamFile = arg.split(":=")[1]
@@ -109,6 +110,15 @@ def generate_launch_description():
                     'needleParamFile'       : LaunchConfiguration('needleParamFile'),
             }.items()
     )
+    ld_hyperion_interroagor = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+                PathJoinSubstitution( [pkg_hyperion_fbg_interrogator, 'hyperion_streamer.launch.py'] )
+            ),
+            launch_arguments = {
+                    'ip'                    : LaunchConfiguration('interrogatorIP'),
+                    'needleParamFile'       : LaunchConfiguration('needleParamFile'),
+            }.items()
+    )
 
     # add to launch description
     ld.add_action(arg_simlevel)
@@ -122,7 +132,8 @@ def generate_launch_description():
     ld.add_action(arg_interrogatorparams)
    
     ld.add_action(ld_needlepub)
-    ld.add_action(ld_interrogator)
+    # ld.add_action(ld_interrogator) # FIXME: make a launch argument
+    ld.add_action(ld_hyperion_interroagor)
     
 
     return ld
