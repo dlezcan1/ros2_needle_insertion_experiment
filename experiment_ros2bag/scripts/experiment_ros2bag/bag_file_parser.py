@@ -1,11 +1,9 @@
 import os
 import sqlite3
-from rclpy.serialization import deserialize_message
-from rosidl_runtime_py.utilities import get_message, get_service
-
 import yaml
 
-import pandas as pd
+from rclpy.serialization import deserialize_message
+from rosidl_runtime_py.utilities import get_message, get_service
 
 
 class BagFileParser:
@@ -16,7 +14,7 @@ class BagFileParser:
 
         # get metadata
         self.metadata = None
-        if os.path.exists( yamlfile ):
+        if os.path.isfile( yamlfile ):
             with open(yamlfile, 'r') as f:
                 self.metadata = yaml.load(f)
 
@@ -27,20 +25,12 @@ class BagFileParser:
         self.bag_db = sqlite3.connect( os.path.join( bagdir, bagfile ) )
         self.cursor = self.bag_db.cursor()
 
-        # self.cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
-        # tables = self.cursor.fetchall()
-        # for table_name in tables:
-        #     table_name = table_name[0]
-        #     table = pd.read_sql_query("SELECT * from %s" % table_name, self.bag_db)
-        #     table.to_csv(table_name + '.csv', index_label='index')
-        
-
         # create a message type map (from https://github.com/ros2/rosbag2/issues/473 )
-        topics_data = self.cursor.execute( "SELECT id, name, type FROM topics" ).fetchall()
+        topics_data     = self.cursor.execute( "SELECT id, name, type FROM topics" ).fetchall()
         self.topic_type = { name_of: type_of for id_of, name_of, type_of in topics_data }
-        self.topic_id = { name_of: id_of for id_of, name_of, type_of in topics_data }
+        self.topic_id   = { name_of: id_of for id_of, name_of, type_of in topics_data }
         self.topic_name = { id_of: name_of for id_of, name_of, type_of in topics_data }
-        self.topic_msg = { name_of: get_message( type_of ) for id_of, name_of, type_of in topics_data }
+        self.topic_msg  = { name_of: get_message( type_of ) for id_of, name_of, type_of in topics_data }
 
     # __init__
 
@@ -49,18 +39,39 @@ class BagFileParser:
 
     # __del__
 
-    def get_messages( self, topic_name = None, ts_range: tuple = (None, None), ts_range_exclude: tuple = (None, None), generator_count: int = -1):
+    def deserialize_message(self, msg, topic_name = None, topic_id = None):
+        """ Deserialize the message """
+        if topic_name is not None:
+            topic_msg = self.topic_msg[topic_name]
+
+        elif topic_id is not None:
+            topic_msg = self.topic_msg[self.topic_name[topic_id]]
+
+        else: 
+            raise ValueError("'either topic_name' or 'topic_id' must be provided.")
+
+        return deserialize_message(msg, topic_msg)
+
+    # deserialze_message
+
+    def get_messages(
+        self, 
+        topic_name = None, 
+        ts_range: tuple = None, 
+        ts_range_exclude: tuple = None, 
+        generator_count: int = -1,
+    ):
         """
             Get all of the messages from the topic
             :param topic_name: string or list of strings of the topic name(s) to get
             :param ts_range: tuple of timestamps (Default = (None, None)) to include
-            :param ts_range_exclude: tuple of timestamps (Default = (None, None))
+            :param ts_range_exclude: tuple of timestamps (Default = (None, None)) to exclude
             :return: list of tuples(timestamp, message)
 
         """
         # Get from the db
-        sql_cmd ="SELECT timestamp, topic_id, data FROM messages"
-        conditions = []
+        sql_cmd    = "SELECT timestamp, topic_id, data FROM messages"
+        conditions = list()
 
         # process topic name
         if topic_name is not None:
@@ -80,6 +91,12 @@ class BagFileParser:
         # if
 
         # process timestamp ranges
+        if ts_range is None:
+            ts_range = (None, None)
+
+        if ts_range_exclude is None:
+            ts_range_exclude = (None, None)
+
         if ts_range[0] is not None and ts_range[1] is not None:
             conditions.append( f"timestamp BETWEEN {ts_range[0]} and {ts_range[1]}" )
 
@@ -101,39 +118,63 @@ class BagFileParser:
 
         # combine conditions
         if len(conditions) > 0:
-            sql_cmd += " WHERE " + " AND ".join(conditions) + " ORDER BY timestamp ASC"
+            sql_cmd += " WHERE " + " AND ".join(conditions) 
+            
+        sql_cmd += " ORDER BY timestamp ASC"
 
         rows = self.cursor.execute( sql_cmd )
 
         # Deserialise all and timestamp them
         if generator_count > 0:
             while True:
-                yield [(ts, self.topic_name[id], self.deserialize_message(msg_srl, topic_id=id)) for ts, id, msg_srl 
-                        in rows.fetchmany(generator_count)]
+                yield [
+                    (ts, self.topic_name[id], self.deserialize_message(msg_srl, topic_id=id)) 
+                    for ts, id, msg_srl 
+                    in rows.fetchmany(generator_count)
+                ]
             # while
         # if
         else: # get all
-            return [(ts, self.topic_name[id], self.deserialize_message(msg_srl, topic_id=id)) for ts, id, msg_srl
-                     in rows.fetchall()]
+            return [
+                (ts, self.topic_name[id], self.deserialize_message(msg_srl, topic_id=id)) 
+                for ts, id, msg_srl
+                in rows.fetchall()
+            ]
 
         # else
     # get_messages
 
-    def deserialize_message(self, msg, topic_name = None, topic_id = None):
-        """ Deserialize the message """
-        if topic_name is not None:
-            topic_msg = self.topic_msg[topic_name]
+    def get_closest_message_to_timestamp(
+        self, 
+        topic_name, 
+        target_timestamp, 
+        ts_range: tuple = None, 
+        ts_range_exclude: tuple = None,
+    ):
+        closest_ts  = None
+        closest_msg = None
 
-        elif topic_id is not None:
-            topic_msg = self.topic_msg[self.topic_name[topic_id]]
+        for ts, _, msg in self.get_messages(
+            topic_name, 
+            ts_range=ts_range,
+            ts_range_exclude=ts_range_exclude,
+            generator_count=1,
+        ):
+            if closest_ts is None:
+                closest_ts  = ts
+                closest_msg = msg
 
-        else: 
-            raise ValueError("'either topic_name' or 'topic_id' must be provided.")
+            elif abs(ts - target_timestamp) < abs(closest_ts - target_timestamp):
+                closest_ts  = ts
+                closest_msg = msg
 
-        return deserialize_message(msg, topic_msg)
+            else:
+                break # assume monotonoic increasing timestamps
 
-    # deserialze_message
+        # for
 
-
+        return closest_ts, closest_msg
+    
+    # get_closest_message_to_timestamp
 
 # class: BagFileParser
