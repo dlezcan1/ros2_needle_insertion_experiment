@@ -7,7 +7,7 @@ from rosidl_runtime_py.utilities import get_message, get_service
 
 
 class BagFileParser:
-    def __init__( self, bagdir: str, bagfile: str = None, yamlfile: str = None ):
+    def __init__( self, bagdir: str, bagfile: str = None, yamlfile: str = None, bag_db: sqlite3.Connection = None ):
 
         bagfile = bagfile if bagfile is not None else os.path.split(bagdir)[-1]+ "_0.db3"
         yamlfile = yamlfile if yamlfile is not None else "metadata.yaml"
@@ -22,7 +22,11 @@ class BagFileParser:
         # if
         
         # connect to sql
-        self.bag_db = sqlite3.connect( os.path.join( bagdir, bagfile ) )
+        self.bag_db = (
+            bag_db
+            if bag_db is not None else 
+            sqlite3.connect( os.path.join( bagdir, bagfile ) )
+        )
         self.cursor = self.bag_db.cursor()
 
         # create a message type map (from https://github.com/ros2/rosbag2/issues/473 )

@@ -2,15 +2,16 @@ from abc import ABC, abstractmethod, abstractproperty
 from collections import defaultdict
 import itertools
 import os
-from typing import List, Dict, Tuple
+from typing import List, Dict, Tuple, Union
 import warnings
 
 import numpy as np
 import pandas as pd
+import sqlite3
 
 from std_msgs.msg import Float64MultiArray
 from geometry_msgs.msg import (
-    PoseStamped, 
+    PoseStamped,
     PoseArray,
 )
 
@@ -23,20 +24,22 @@ from needle_shape_publisher.utilites import (
 
 class ExperimentBagParser(ABC, BagFileParser):
     def __init__(
-            self, 
-            bagdir: str, 
-            insertion_depths: List[float], 
-            bagfile: str = None, 
-            yamlfile: str = None, 
-            topics: List[str] = None,
+            self,
+            bagdir: str,
+            insertion_depths: List[float],
+            bagfile: str = None,
+            yamlfile: str = None,
+            topics: Union[Dict[str, List[str]], List[str]] = None,
+            bag_db: sqlite3.Connection = None
         ):
         super().__init__(
-            bagdir, 
-            bagfile=bagfile, 
+            bagdir,
+            bagfile=bagfile,
             yamlfile=yamlfile,
+            bag_db=bag_db,
         )
         self.topics_of_interest = topics
-        self.insertion_depths = sorted(insertion_depths)
+        self.insertion_depths   = sorted(insertion_depths)
 
     # __init__
 
@@ -58,14 +61,15 @@ class ExperimentBagParser(ABC, BagFileParser):
 
 class TimestampDependentExperimentBagParser(ExperimentBagParser, ABC):
     def __init__(
-            self, 
-            bagdir: str, 
-            insertion_depths: List[float], 
-            bagfile: str = None, 
-            yamlfile: str = None, 
-            topics: List[str] = None
+            self,
+            bagdir: str,
+            insertion_depths: List[float],
+            bagfile: str = None,
+            yamlfile: str = None,
+            topics: List[str] = None,
+            bag_db: sqlite3.Connection = None,
         ):
-        super().__init__(bagdir, insertion_depths, bagfile, yamlfile, topics)
+        super().__init__(bagdir, insertion_depths, bagfile, yamlfile, topics, bag_db)
 
         self.timestamp_ranges  = None
         self.target_timestamps = None
@@ -109,7 +113,7 @@ class TimestampDependentExperimentBagParser(ExperimentBagParser, ABC):
         target_timestamps: Dict[float, int],
         ts_range: tuple = None,
         ts_range_exclude: tuple = None,
-        inplace: bool = False
+        inplace: bool = False,
     ):
         """ Determines which timestamps to use based on a topic
             which has timestamps closest to the target timestamps
@@ -122,11 +126,11 @@ class TimestampDependentExperimentBagParser(ExperimentBagParser, ABC):
         for depth, target_ts in target_timestamps.items():
             ts_range_d = ts_range
             if ts_range_d is None and self.timestamp_ranges is not None:
-                ts_range_d = self.timestamp_ranges.get(depth, (None, None))
+                ts_range_d = self.timestamp_ranges.get(depth, None)
 
             closest_ts, _ = self.get_closest_message_to_timestamp(
-                by_topic, 
-                target_ts, 
+                by_topic,
+                target_ts,
                 ts_range=ts_range_d,
                 ts_range_exclude=ts_range_exclude,
             )
@@ -136,24 +140,32 @@ class TimestampDependentExperimentBagParser(ExperimentBagParser, ABC):
         # for
 
         return timestamps
-    
+
     # determine_timestamps_closest_to_target
 
 # class: TimestampDependentExperimentBagParser
-    
+
 
 class CameraDataBagParser(TimestampDependentExperimentBagParser):
     DEFAULT_TOPICS_OF_INTEREST = None # TODO
 
     def __init__(
-            self, 
-            bagdir: str, 
-            insertion_depths: List[float], 
-            bagfile: str = None, 
-            yamlfile: str = None, 
-            topics: List[str] = None,
-        ):
-        super().__init__(bagdir, insertion_depths, bagfile, yamlfile, topics)
+        self,
+        bagdir: str,
+        insertion_depths: List[float],
+        bagfile: str = None,
+        yamlfile: str = None,
+        topics: List[str] = None,
+        bag_db: sqlite3.Connection = None,
+    ):
+        super().__init__(
+            bagdir,
+            insertion_depths=insertion_depths,
+            bagfile=bagfile,
+            yamlfile=yamlfile,
+            topics=topics if topics is not None else CameraDataBagParser.DEFAULT_TOPICS_OF_INTEREST,
+            bag_db=bag_db,
+        )
 
     # __init__
 
@@ -161,7 +173,6 @@ class CameraDataBagParser(TimestampDependentExperimentBagParser):
         assert self.target_timestamps is not None, (
             "You must configure the target timestamps for each of the insertion depths"
         )
-        
 
         timestamps = self.determine_timestamps_closest_to_target(
             key_topic,
@@ -170,14 +181,14 @@ class CameraDataBagParser(TimestampDependentExperimentBagParser):
         )
 
         return timestamps
-    
+
     # determine_timestamps
 
 # class: CameraDataBagParser
 
 class RobotDataBagParser(ExperimentBagParser):
-    DEFAULT_TOPICS_OF_INTEREST = ["/stage/state/needle_pose"] + [ 
-        "/".join([ns, topic, axis]) 
+    DEFAULT_TOPICS_OF_INTEREST = ["/stage/state/needle_pose"] + [
+        "/".join([ns, topic, axis])
         for ns, topic, axis in
         itertools.product(
             ["/stage/axis"],
@@ -187,19 +198,21 @@ class RobotDataBagParser(ExperimentBagParser):
     ]
 
     def __init__(
-            self, 
-            bagdir: str, 
-            insertion_depths: List[float], 
-            bagfile: str = None, 
-            yamlfile: str = None, 
-            topics: List[str] = None,
-        ):
+        self,
+        bagdir: str,
+        insertion_depths: List[float],
+        bagfile: str = None,
+        yamlfile: str = None,
+        topics: List[str] = None,
+        bag_db: sqlite3.Connection = None,
+    ):
         super().__init__(
-            bagdir, 
+            bagdir,
             insertion_depths=insertion_depths,
-            bagfile=bagfile, 
-            yamlfile=yamlfile, 
-            topics=topics if topics is not None else RobotDataBagParser.DEFAULT_TOPICS_OF_INTEREST
+            bagfile=bagfile,
+            yamlfile=yamlfile,
+            topics=topics if topics is not None else RobotDataBagParser.DEFAULT_TOPICS_OF_INTEREST,
+            bag_db=bag_db,
         )
 
         self.key_topic = list(filter(lambda t_name: "state/needle_pose" in t_name, self.topics_of_interest))[0]
@@ -228,14 +241,14 @@ class RobotDataBagParser(ExperimentBagParser):
             # for
 
         # for
-            
+
         self.insertion_depth_timestamp_ranges = {
             d: ( min(timestamps), max(timestamps) )
             for d, timestamps in insertion_depth_timestamp_ranges.items()
         }
 
         return self.insertion_depth_timestamp_ranges
-    
+
     # parse_data
 
     def save_results(self, odir: str, filename: str = None):
@@ -258,7 +271,7 @@ class RobotDataBagParser(ExperimentBagParser):
             index_label="Insertion Depth (mm)"
         )
         print(
-            "Saved robot timestamp data to:", 
+            "Saved robot timestamp data to:",
             os.path.join(odir, filename)
         )
 
@@ -266,9 +279,9 @@ class RobotDataBagParser(ExperimentBagParser):
 
     @classmethod
     def get_insertion_depth(cls, needle_pose_msg: PoseStamped):
-        """ Returns the insertion depth of the state/needle_pose topic message """ 
+        """ Returns the insertion depth of the state/needle_pose topic message """
         return needle_pose_msg.pose.position.z
-    
+
     # get_insertion_depth
 
 # class: RobotDataBagParser
@@ -285,29 +298,31 @@ class NeedleDataBagParser(TimestampDependentExperimentBagParser):
     ]
 
     def __init__(
-            self, 
-            bagdir: str, 
-            insertion_depths: List[float], 
-            bagfile: str = None, 
-            yamlfile: str = None, 
+            self,
+            bagdir: str,
+            insertion_depths: List[float],
+            bagfile: str = None,
+            yamlfile: str = None,
             topics: List[str] = None,
-        ):
+            bag_db: sqlite3.Connection = None,
+    ):
         super().__init__(
-            bagdir, 
-            insertion_depth=insertion_depths,
-            bagfile=bagfile, 
-            yamlfile=yamlfile, 
-            topics=topics if topics is not None else NeedleDataBagParser.DEFAULT_TOPICS_OF_INTEREST
+            bagdir,
+            insertion_depths=insertion_depths,
+            bagfile=bagfile,
+            yamlfile=yamlfile,
+            topics=topics if topics is not None else NeedleDataBagParser.DEFAULT_TOPICS_OF_INTEREST,
+            bag_db=bag_db,
         )
 
         # parsed data results
         # self.needle_data = {
-        #   insertion depth: { 
+        #   insertion depth: {
         #       data: {
-        #           kappa_c: (N, )  floats, 
+        #           kappa_c: (N, )  floats,
         #           winit:   (N, )  floats,
         #           shape:   (N, 3) floats,
-        #       } 
+        #       }
         #       timestamps: {
         #           kappa_c: ts of kappac topic
         #           winit:   ts of winit topic
@@ -356,7 +371,7 @@ class NeedleDataBagParser(TimestampDependentExperimentBagParser):
         # for
 
         return timestamps
-    
+
     # determine_timestamps
 
     def parse_data(self):
@@ -426,16 +441,16 @@ class NeedleDataBagParser(TimestampDependentExperimentBagParser):
         # for
 
         return self.needle_data
-    
+
     # parse_data
 
     def save_results(self, odir: str, filename: str = None):
         assert len(self.needle_data) > 0, (
             "Needle data needs to be parsed first!"
         )
-        
+
         filename = filename if filename is not None else "needle_data.xlsx"
-        
+
         for depth, data_ts_dict in self.needle_data.items():
             sub_odir = os.path.join(odir, str(depth))
             os.makedirs(sub_odir, exist_ok=True)
@@ -461,13 +476,13 @@ class NeedleDataBagParser(TimestampDependentExperimentBagParser):
                         sheet_name=data_name,
                         index=False,
                     )
-                 
+
                 # for
             # with
 
             print(
                 f"Saved needle shape data for insertion depth {depth} mm to:",
-                os.path.join(sub_odir, filename)    
+                os.path.join(sub_odir, filename)
             )
 
         # for
@@ -476,25 +491,100 @@ class NeedleDataBagParser(TimestampDependentExperimentBagParser):
 
 # class: NeedleDataBagParser
 
-class InsertionExperimentBagParser( BagFileParser ):
+class InsertionExperimentBagParser( ExperimentBagParser ):
     DEFAULT_TOPICS_OF_INTEREST = {
-        "camera": None,
-        "robot": RobotDataBagParser.DEFAULT_TOPICS_OF_INTEREST,
+        "camera": CameraDataBagParser.DEFAULT_TOPICS_OF_INTEREST,
+        "robot" : RobotDataBagParser.DEFAULT_TOPICS_OF_INTEREST,
         "needle": NeedleDataBagParser.DEFAULT_TOPICS_OF_INTEREST,
     }
 
-    def __init__( self, bagdir: str, bagfile: str = None, yamlfile: str = None, topics: list = None ):
-        super().__init__( bagdir, bagfile=bagfile, yamlfile=yamlfile )
-
-        self.topics_of_interest = (
-            topics 
-            if topics is not None else 
-            InsertionExperimentBagParser.DEFAULT_TOPICS_OF_INTEREST
+    def __init__(
+        self,
+        bagdir: str,
+        insertion_depths: List[float],
+        bagfile: str = None,
+        yamlfile: str = None,
+        topics: Dict[str, List[str]] = None,
+        bag_db: sqlite3.Connection = None,
+    ):
+        super().__init__(
+            bagdir,
+            insertion_depths=insertion_depths,
+            bagfile=bagfile,
+            yamlfile=yamlfile,
+            topics=topics if topics is not None else InsertionExperimentBagParser.DEFAULT_TOPICS_OF_INTEREST,
+            bag_db=bag_db,
         )
 
-        # data containers
+        self.needle_parser = NeedleDataBagParser(
+            bagdir,
+            insertion_depths=self.insertion_depths,
+            bagfile=bagfile,
+            yamlfile=yamlfile,
+            topics=self.topics_of_interest["needle"],
+            bag_db=self.bag_db,
+        )
+        self.robot_parser = RobotDataBagParser(
+            bagdir,
+            insertion_depths=self.insertion_depths,
+            bagfile=bagfile,
+            yamlfile=yamlfile,
+            topics=self.topics_of_interest["robot"],
+            bag_db=self.bag_db,
+        )
+        self.camera_parser = CameraDataBagParser(
+            bagdir,
+            insertion_depths=self.insertion_depths,
+            bagfile=bagfile,
+            yamlfile=yamlfile,
+            topics=self.topics_of_interest["camera"],
+            bag_db=self.bag_db,
+        )
 
+        self._to_parse = {
+            "robot":  False,
+            "camera": False,
+            "needle": False,
+        }
 
     # __init__
-    
+
+    def configure(
+        self,
+        parse_robot:  bool = False,
+        parse_camera: bool = False,
+        parse_needle: bool = False,
+    ):
+        if parse_robot:
+            # TODO
+            pass
+
+        # if
+
+        if parse_camera:
+            # TODO
+            pass
+
+        # if
+
+        if parse_needle:
+            # TODO
+            pass
+
+        # if
+
+    # configure
+
+    def parse_data(self):
+        # TODO
+        pass
+
+    # parse_data
+
+    def save_results(self, odir: str, filename: str = None):
+        # TODO
+        pass
+
+    # save_results
+
 # class: InsertionExperimentBag
