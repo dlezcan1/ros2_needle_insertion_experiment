@@ -9,6 +9,10 @@ import numpy as np
 import pandas as pd
 import sqlite3
 
+from sensor_msgs.msg import (
+    CameraInfo,
+    Image,
+)
 from std_msgs.msg import Float64MultiArray
 from geometry_msgs.msg import (
     PoseStamped,
@@ -19,6 +23,10 @@ from .bag_file_parser import BagFileParser
 from needle_shape_publisher.utilites import (
     msg2pose,
     msg2poses,
+)
+
+from pgr_stereo_camera.utilities import (
+    ImageConversions
 )
 
 
@@ -56,6 +64,14 @@ class ExperimentBagParser(ABC, BagFileParser):
         pass
 
     # save_results
+
+    def get_topics_by_name(self, name: str, topic_list: List[str] = None):
+        if topic_list is None:
+            topic_list = self.topics_of_interest
+
+        return list(filter(lambda topic: name in topic, topic_list))
+
+    # get_topics_by_name
 
 # class: ExperimentBagParser
 
@@ -147,7 +163,13 @@ class TimestampDependentExperimentBagParser(ExperimentBagParser, ABC):
 
 
 class CameraDataBagParser(TimestampDependentExperimentBagParser):
-    DEFAULT_TOPICS_OF_INTEREST = None # TODO
+    DEFAULT_TOPICS_OF_INTEREST = [
+        "/camera/left/camera_info", "/camera/right/camera_info", # sensor_msgs.msg.CameraInfo
+        "/camera/left/image_raw",   "/camera/right/image_raw",   # sensor_msgs.msg.Image
+        "/needle/state/gt_shape",                                # geometry_msgs.msg.PoseArray
+        "/needle/state/transf_camera2needle",                    # geometry_msgs.msg.Pose
+        "/needle/state/gt_shape_transformed",                    # geometry_msgs.msg.PoseArray
+    ]
 
     def __init__(
         self,
@@ -167,22 +189,189 @@ class CameraDataBagParser(TimestampDependentExperimentBagParser):
             bag_db=bag_db,
         )
 
+        # parsed data results
+        # self.camera_data = {
+        #   insertion depth: {
+        #       data: {
+        #           left_image  : image from left camera
+        #           left_info   : camera information from left camera
+        #           right_image : image from right camera
+        #           right_info  : camera information from right camera
+        #           needle_shape: shape of needle
+        #       }
+        #       timestamps: {
+        #           key from data: timestamp of data topic
+        #       }
+        #   }
+        # }
+        self.camera_data = defaultdict(
+            lambda: {
+                "data": dict(),
+                "timestamps": dict(),
+            },
+        )
+
     # __init__
+
+    @staticmethod
+    def camerainfo_msg2dict(msg: CameraInfo):
+        return {
+            "height"           : msg.height,
+            "width"            : msg.width,
+            "intrinsic"        : np.asarray(msg.k),
+            "rotation"         : np.asarray(msg.r),
+            "projection"       : np.asarray(msg.p),
+            "distortion_model" : msg.distortion_model,
+            "distortion_coeffs": np.asarray(msg.d)
+        }
+
+    # camerainfo_msg2dict
 
     def determine_timestamps(self, inplace: bool = False):
         assert self.target_timestamps is not None, (
             "You must configure the target timestamps for each of the insertion depths"
         )
 
+        key_topic_1 = self.get_topics_by_name("left/gt_shpae")[0]
+        key_topic_2 = self.get_topics_by_name("left/image_raw")[0]
+
         timestamps = self.determine_timestamps_closest_to_target(
-            key_topic,
+            key_topic_1,
             self.target_timestamps,
             ts_range=self.timestamp_ranges
         )
+        if any(v is None for v in timestamps.values()):
+            timestamps_2 = self.determine_timestamps_closest_to_target(
+                key_topic_2,
+                {
+                    depth: target_ts
+                    for depth, target_ts in self.target_timestamps
+                    if timestamps.get(depth, None) is None
+                },
+                ts_range=self.timestamp_ranges
+            )
+
+            # update timestamps
+            timestamps.update(timestamps_2)
+
+        # if
+
+        if inplace:
+            self.timestamps = timestamps
 
         return timestamps
 
     # determine_timestamps
+
+    def parse_data(self):
+        assert self.timestamps is not None, (
+            "You must determine which timestamps to use for each of the insertions depths in order to "
+            "parse the camera data"
+        )
+        # topic names
+        gtshape_topic   = self.get_topics_by_name("needle/state/gt_shape")[0]
+
+        leftimg_topic   = self.get_topics_by_name("left/image_raw")[0]
+        rightimg_topic  = self.get_topics_by_name("righ/image_raw")[0]
+
+        leftinfo_topic  = self.get_topics_by_name("left/camera_info")[0]
+        rightinfo_topic = self.get_topics_by_name("righ/camera_info")[0]
+
+        for depth, target_ts in self.timestamps.items():
+            ts_range = self.timestamp_ranges.get(depth)
+
+            # get data by gt_shape (if possible)
+            closest_gtshape_ts, best_gtshape_msg = self.get_closest_message_to_timestamp(
+                gtshape_topic,
+                target_ts,
+                ts_range=ts_range,
+            )
+            best_gtshape = None
+            if best_gtshape_msg is not None:
+                best_gtshape_msg: PoseArray
+                best_gtshape = msg2poses(best_gtshape_msg)[:, :3, 3]
+            
+            # if
+            self.camera_data[depth]["data"]["gt_shape"]       = best_gtshape
+            self.camera_data[depth]["timestamps"]["gt_shape"] = closest_gtshape_ts
+            
+            if best_gtshape is not None:
+                continue # no need to process images
+            
+            # get data by raw images (back-up)
+            # - left image
+            closest_limg_ts, best_limg_msg = self.get_closest_message_to_timestamp(
+                leftimg_topic,
+                target_ts,
+                ts_range=ts_range,
+            )
+            closest_linfo_ts, best_linfo_msg = self.get_closest_message_to_timestamp(
+                leftinfo_topic,
+                closest_limg_ts,
+                ts_range=ts_range,
+            )
+
+            best_limg = None
+            if best_limg_msg is not None:
+                best_limg_msg: Image
+                best_limg = ImageConversions.ImageMsgTocv(best_limg_msg)
+
+            self.camera_data[depth]["data"]["left_image"]      = best_limg
+            self.camera_data[depth]["timestamp"]["left_image"] = closest_limg_ts
+
+            # if
+            best_linfo = None
+            if best_linfo_msg is not None:
+                best_linfo_msg: CameraInfo
+                best_linfo = self.camerainfo_msg2dict(best_linfo_msg)
+
+            # if
+
+            self.camera_data[depth]["data"]["left_info"]      = best_linfo
+            self.camera_data[depth]["timestamp"]["left_info"] = closest_linfo_ts
+            
+            # - right image
+            closest_rimg_ts, best_rimg_msg = self.get_closest_message_to_timestamp(
+                rightimg_topic,
+                target_ts,
+                ts_range=ts_range,
+            )
+            closest_rinfo_ts, best_rinfo_msg = self.get_closest_message_to_timestamp(
+                rightinfo_topic,
+                closest_rimg_ts,
+                ts_range=ts_range,
+            )
+
+            best_rimg = None
+            if best_rimg_msg is not None:
+                best_rimg_msg: Image
+                best_rimg = ImageConversions.ImageMsgTocv(best_rimg_msg)
+
+            self.camera_data[depth]["data"]["right_image"]      = best_rimg
+            self.camera_data[depth]["timestamp"]["right_image"] = closest_rimg_ts
+
+            # if
+            best_rinfo = None
+            if best_rinfo_msg is not None:
+                best_rinfo_msg: CameraInfo
+                best_rinfo = self.camerainfo_msg2dict(best_rinfo_msg)
+
+            # if
+
+            self.camera_data[depth]["data"]["right_info"]      = best_rinfo
+            self.camera_data[depth]["timestamp"]["right_info"] = closest_rinfo_ts
+
+        # for
+
+        return self.camera_data
+
+    # parse_data
+
+    def save_results(self, odir: str, filename: str = None):
+        # TODO
+        pass
+
+    # save_results
 
 # class: CameraDataBagParser
 
@@ -215,7 +404,7 @@ class RobotDataBagParser(ExperimentBagParser):
             bag_db=bag_db,
         )
 
-        self.key_topic = list(filter(lambda t_name: "state/needle_pose" in t_name, self.topics_of_interest))[0]
+        self.key_topic = self.get_topics_by_name("state/needle_pose")[0]
 
         # data members (from parsing the bag)
         self.insertion_depth_timestamp_ranges = None
@@ -324,9 +513,7 @@ class NeedleDataBagParser(TimestampDependentExperimentBagParser):
         #           shape:   (N, 3) floats,
         #       }
         #       timestamps: {
-        #           kappa_c: ts of kappac topic
-        #           winit:   ts of winit topic
-        #           shape:   ts of shape topic
+        #           key from data: timestamp of data topic
         #       }
         #   }
         # }
@@ -340,11 +527,16 @@ class NeedleDataBagParser(TimestampDependentExperimentBagParser):
     # __init__
 
     def determine_timestamps(self, inplace: bool=False):
+        assert self.timestamp_ranges is not None, (
+            "You must configure the timestamp ranges for each of the insertion depths in order to "
+            "determine the timestamps"
+        )
+
         timestamps = dict()
         if inplace:
             timestamps = self.timestamps
 
-        kappac_topic = list(filter(lambda topic: "state/kappac" in topic))[0]
+        kappac_topic = self.get_topics_by_name("state/kappac")[0]
         for depth, ts_range in self.timestamp_ranges.items():
             kappac_msgs = self.get_messages(kappac_topic, ts_range=ts_range, generator_count=-1)
 
@@ -375,17 +567,15 @@ class NeedleDataBagParser(TimestampDependentExperimentBagParser):
     # determine_timestamps
 
     def parse_data(self):
-        assert self.timestamp_ranges is not None, (
-            "You must configure the timestamp ranges for each of the insertion depths in order to "
+        assert self.timestamps is not None, (
+            "You must determine which timestamps to use for each of the insertions depths in order to "
             "parse the needle shape data"
         )
 
-        self.timestamps = self.determine_timestamps()
-
         # topic names
-        kappac_topic = list(filter(lambda topic: "state/kappac" in topic))[0]
-        winit_topic  = list(filter(lambda topic: "state/winit" in topic))[0]
-        shape_topic  = list(filter(lambda topic: "state/current_shape" in topic))[0]
+        kappac_topic = self.get_topics_by_name("state/kappac")
+        winit_topic  = self.get_topics_by_name("state/winit")
+        shape_topic  = self.get_topics_by_name("state/current_shape")
 
         # parse the needle shape data
         for depth, ts_range in self.timestamp_ranges.items():
@@ -410,7 +600,7 @@ class NeedleDataBagParser(TimestampDependentExperimentBagParser):
             closest_winit_ts, best_winit_msg = self.get_closest_message_to_timestamp(
                 winit_topic,
                 target_ts,
-                ts_range=ts_range
+                ts_range=ts_range,
             )
             best_winit = None
             if best_winit_msg is not None:
@@ -555,29 +745,46 @@ class InsertionExperimentBagParser( ExperimentBagParser ):
         parse_camera: bool = False,
         parse_needle: bool = False,
     ):
-        if parse_robot:
-            # TODO
-            pass
-
-        # if
-
-        if parse_camera:
-            # TODO
-            pass
-
-        # if
-
-        if parse_needle:
-            # TODO
-            pass
-
-        # if
+        self._to_parse["robot"]  = parse_robot
+        self._to_parse["camera"] = parse_camera
+        self._to_parse["needle"] = parse_needle
 
     # configure
 
     def parse_data(self):
-        # TODO
-        pass
+        robot_timestamp_ranges = {
+            depth: (None, None)
+            for depth in self.insertion_depths
+        }
+        if self._to_parse["robot"]:
+            robot_timestamp_ranges = self.robot_parser.parse_data()
+
+        # if
+
+        needle_data       = None
+        needle_timestamps = None
+        if self._to_parse["needle"]:
+            self.needle_parser.configure_timestamp_ranges(robot_timestamp_ranges)
+
+            needle_timestamps = self.needle_parser.determine_timestamps(inplace=True)
+
+            needle_data = self.needle_parser.parse_data()
+
+        # if
+
+        camera_data       = None
+        camera_timestamps = None
+        if self._to_parse["camera"]:
+            self.camera_parser.configure_timestamp_ranges(robot_timestamp_ranges)
+            self.camera_parser.configure_target_timestamps(needle_timestamps)
+
+            camera_timestamps = self.camera_parser.determine_timestamps()
+
+            camera_data = self.camera_parser.parse_data()
+
+        # if
+
+        return (robot_timestamp_ranges, needle_data, camera_data)
 
     # parse_data
 
