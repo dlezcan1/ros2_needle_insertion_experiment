@@ -1,0 +1,39 @@
+{
+    "python.autoComplete.extraPaths": [
+        "/root/colcon_ws/build/pgr_stereo_camera",
+        "/root/colcon_ws/install/pgr_stereo_camera/lib/python3.8/site-packages",
+        "/root/colcon_ws/build/sm130_interrogator_py",
+        "/root/colcon_ws/install/sm130_interrogator_py/lib/python3.8/site-packages",
+        "/root/colcon_ws/build/needle_shape_publisher",
+        "/root/colcon_ws/install/needle_shape_publisher/lib/python3.8/site-packages",
+        "/root/colcon_ws/build/needle_insertion_robot_translation",
+        "/root/colcon_ws/install/needle_insertion_robot_translation/lib/python3.8/site-packages",
+        "/root/colcon_ws/install/needle_insertion_robot_translation_interfaces/lib/python3.8/site-packages",
+        "/root/colcon_ws/build/needle_insertion_experiment",
+        "/root/colcon_ws/install/needle_insertion_experiment/lib/python3.8/site-packages",
+        "/root/colcon_ws/build/insertion_point_publisher",
+        "/root/colcon_ws/install/insertion_point_publisher/lib/python3.8/site-packages",
+        "/root/colcon_ws/build/hyperion_interrogator",
+        "/root/colcon_ws/install/hyperion_interrogator/lib/python3.8/site-packages",
+        "/opt/ros/foxy/lib/python3.8/site-packages"
+    ],
+    "python.analysis.extraPaths": [
+        "/root/colcon_ws/build/pgr_stereo_camera",
+        "/root/colcon_ws/install/pgr_stereo_camera/lib/python3.8/site-packages",
+        "/root/colcon_ws/build/sm130_interrogator_py",
+        "/root/colcon_ws/install/sm130_interrogator_py/lib/python3.8/site-packages",
+        "/root/colcon_ws/build/needle_shape_publisher",
+        "/root/colcon_ws/install/needle_shape_publisher/lib/python3.8/site-packages",
+        "/root/colcon_ws/build/needle_insertion_robot_translation",
+        "/root/colcon_ws/install/needle_insertion_robot_translation/lib/python3.8/site-packages",
+        "/root/colcon_ws/install/needle_insertion_robot_translation_interfaces/lib/python3.8/site-packages",
+        "/root/colcon_ws/build/needle_insertion_experiment",
+        "/root/colcon_ws/install/needle_insertion_experiment/lib/python3.8/site-packages",
+        "/root/colcon_ws/build/insertion_point_publisher",
+        "/root/colcon_ws/install/insertion_point_publisher/lib/python3.8/site-packages",
+        "/root/colcon_ws/build/hyperion_interrogator",
+        "/root/colcon_ws/install/hyperion_interrogator/lib/python3.8/site-packages",
+        "/opt/ros/foxy/lib/python3.8/site-packages"
+    ],
+    "cmake.configureOnOpen": false
+}

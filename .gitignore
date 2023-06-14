@@ -1,2 +1,2 @@
-needle_insertion_experiment/.vscode
-**/.vscode/
+.vscode/
+!.vscode/*.json
