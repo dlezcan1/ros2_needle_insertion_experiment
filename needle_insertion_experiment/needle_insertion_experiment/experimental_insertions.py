@@ -222,7 +222,7 @@ class InsertionExperimentControllerNode(Node):
 
     def retract_needle(self):
         self.get_logger().warn("Retracting needle!")
-        self.command_insertion_depth(-5.0)
+        self.command_insertion_depth(self.retraction_dist)
 
     def sub_position_callback(self, msg: Float32, axis: str):
         if axis ==  self.X_AXIS_NAME:
