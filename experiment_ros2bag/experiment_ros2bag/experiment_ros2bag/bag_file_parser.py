@@ -58,6 +58,23 @@ class BagFileParser:
 
     # deserialze_message
 
+    def get_all_messages(
+        self,
+        topic_name = None, 
+        ts_range: tuple = None, 
+        ts_range_exclude: tuple = None, 
+    ):
+        return next(
+            self.get_messages(
+                topic_name=topic_name,
+                ts_range=ts_range,
+                ts_range_exclude=ts_range_exclude,
+                generator_count=-1
+            )
+        )
+    
+    # get_all_messages
+
     def get_messages(
         self, 
         topic_name = None, 
@@ -70,7 +87,11 @@ class BagFileParser:
             :param topic_name: string or list of strings of the topic name(s) to get
             :param ts_range: tuple of timestamps (Default = (None, None)) to include
             :param ts_range_exclude: tuple of timestamps (Default = (None, None)) to exclude
-            :return: list of tuples(timestamp, message)
+            :param generator_count: int of how many values to get per generator (-1 gets all as direct list)
+            :return: 
+                - generator_count = -1 -> generator for a single list of tuples(timestamp, message)
+                - generator_count = 1 -> generator of tuples (timestamp, topic name, message)
+                - generator_count > 1 -> generator of list of tuples (timestamp, topic name, message) with length (generator_count)
 
         """
         # Get from the db
@@ -131,19 +152,28 @@ class BagFileParser:
         # Deserialise all and timestamp them
         if generator_count > 0:
             while True:
-                yield [
+                next_fetch = [
                     (ts, self.topic_name[id], self.deserialize_message(msg_srl, topic_id=id)) 
                     for ts, id, msg_srl 
                     in rows.fetchmany(generator_count)
                 ]
+                if len(next_fetch) == 0:
+                    return
+
+                if len(next_fetch) == 1 and generator_count == 1:
+                    next_fetch = next_fetch[0]
+
+                yield next_fetch 
             # while
         # if
         else: # get all
-            return [
+            ret_val = [
                 (ts, self.topic_name[id], self.deserialize_message(msg_srl, topic_id=id)) 
                 for ts, id, msg_srl
                 in rows.fetchall()
             ]
+
+            yield ret_val
 
         # else
     # get_messages

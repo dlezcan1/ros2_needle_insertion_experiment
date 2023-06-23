@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd
 import sqlite3
 import cv2 as cv
+from openpyxl import Workbook as ExcelWB
 
 from sensor_msgs.msg import (
     CameraInfo,
@@ -21,14 +22,9 @@ from geometry_msgs.msg import (
 )
 
 from .bag_file_parser import BagFileParser
-from needle_shape_publisher.utilites import (
-    msg2pose,
-    msg2poses,
-)
+import needle_shape_publisher.utilities as nss_util
 
-from pgr_stereo_camera.utilities import (
-    ImageConversions
-)
+import pgr_stereo_camera.utilities as pgr_util
 
 
 class ExperimentBagParser(ABC, BagFileParser):
@@ -248,7 +244,7 @@ class CameraDataBagParser(TimestampDependentExperimentBagParser):
             "You must configure the target timestamps for each of the insertion depths"
         )
 
-        key_topic_1 = self.get_topics_by_name("left/gt_shpae")[0]
+        key_topic_1 = self.get_topics_by_name("state/gt_shape")[0]
         key_topic_2 = self.get_topics_by_name("left/image_raw")[0]
 
         timestamps = self.determine_timestamps_closest_to_target(
@@ -305,7 +301,7 @@ class CameraDataBagParser(TimestampDependentExperimentBagParser):
             best_gtshape = None
             if best_gtshape_msg is not None:
                 best_gtshape_msg: PoseArray
-                best_gtshape = msg2poses(best_gtshape_msg)[:, :3, 3]
+                best_gtshape = nss_util.msg2poses(best_gtshape_msg)[:, :3, 3]
 
             # if
             self.camera_data[depth]["data"]["gt_shape"]       = best_gtshape
@@ -330,10 +326,10 @@ class CameraDataBagParser(TimestampDependentExperimentBagParser):
             best_limg = None
             if best_limg_msg is not None:
                 best_limg_msg: Image
-                best_limg = ImageConversions.ImageMsgTocv(best_limg_msg)
+                best_limg = pgr_util.ImageConversions.ImageMsgTocv(best_limg_msg)
 
             self.camera_data[depth]["data"]["left_image"]      = best_limg
-            self.camera_data[depth]["timestamp"]["left_image"] = closest_limg_ts
+            self.camera_data[depth]["timestamps"]["left_image"] = closest_limg_ts
 
             # if
             best_linfo = None
@@ -344,7 +340,7 @@ class CameraDataBagParser(TimestampDependentExperimentBagParser):
             # if
 
             self.camera_data[depth]["data"]["left_info"]      = best_linfo
-            self.camera_data[depth]["timestamp"]["left_info"] = closest_linfo_ts
+            self.camera_data[depth]["timestamps"]["left_info"] = closest_linfo_ts
 
             # - right image
             closest_rimg_ts, best_rimg_msg = self.get_closest_message_to_timestamp(
@@ -361,10 +357,10 @@ class CameraDataBagParser(TimestampDependentExperimentBagParser):
             best_rimg = None
             if best_rimg_msg is not None:
                 best_rimg_msg: Image
-                best_rimg = ImageConversions.ImageMsgTocv(best_rimg_msg)
+                best_rimg = pgr_util.ImageConversions.ImageMsgTocv(best_rimg_msg)
 
             self.camera_data[depth]["data"]["right_image"]      = best_rimg
-            self.camera_data[depth]["timestamp"]["right_image"] = closest_rimg_ts
+            self.camera_data[depth]["timestamps"]["right_image"] = closest_rimg_ts
 
             # if
             best_rinfo = None
@@ -375,7 +371,7 @@ class CameraDataBagParser(TimestampDependentExperimentBagParser):
             # if
 
             self.camera_data[depth]["data"]["right_info"]      = best_rinfo
-            self.camera_data[depth]["timestamp"]["right_info"] = closest_rinfo_ts
+            self.camera_data[depth]["timestamps"]["right_info"] = closest_rinfo_ts
 
         # for
 
@@ -390,8 +386,7 @@ class CameraDataBagParser(TimestampDependentExperimentBagParser):
             sub_odir = os.path.join(odir, str(depth))
             os.makedirs(sub_odir, exist_ok=True)
 
-
-            with pd.ExcelWriter(os.path.join(sub_odir, filename)) as xl_writer:
+            with pd.ExcelWriter(os.path.join(sub_odir, filename), engine='xlsxwriter') as xl_writer:
                 # write the timestamp information (timestamps grabbed)
                 ts_df = pd.DataFrame.from_dict(data_ts_dict["timestamps"], orient='index')
                 ts_df.loc["target"]    = self.timestamps[depth]
@@ -402,6 +397,7 @@ class CameraDataBagParser(TimestampDependentExperimentBagParser):
                     xl_writer,
                     sheet_name="ROS timestamps",
                     index=True,
+                    header=False,
                 )
 
                 # write the gt shapes
@@ -412,6 +408,7 @@ class CameraDataBagParser(TimestampDependentExperimentBagParser):
                         xl_writer,
                         sheet_name="gt_shape",
                         index=False,
+                        header=False,
                     )
 
                 # if
@@ -434,6 +431,7 @@ class CameraDataBagParser(TimestampDependentExperimentBagParser):
                         xl_writer,
                         sheet_name="left_camera_info",
                         index=True,
+                        header=False,
                     )
 
                 # if
@@ -455,6 +453,7 @@ class CameraDataBagParser(TimestampDependentExperimentBagParser):
                         xl_writer,
                         sheet_name="right_camera_info",
                         index=True,
+                        header=False,
                     )
 
                 # if
@@ -555,6 +554,7 @@ class RobotDataBagParser(ExperimentBagParser):
             orient='index',
             columns=['ts_min', 'ts_max'],
         )
+        ts_ranges_df["delta ts"] = ts_ranges_df["ts_max"] - ts_ranges_df["ts_min"]
 
         os.makedirs(odir, exist_ok=True)
         ts_ranges_df.to_csv(
@@ -583,6 +583,7 @@ class NeedleDataBagParser(TimestampDependentExperimentBagParser):
     DEFAULT_TOPICS_OF_INTEREST = [
         "/needle/sensor/raw",
         "/needle/sensor/processed",
+        "/needle/state/curvatures",
         "/needle/state/current_shape",
         "/needle/state/kappac",
         "/needle/state/winit",
@@ -651,7 +652,7 @@ class NeedleDataBagParser(TimestampDependentExperimentBagParser):
 
         kappac_topic = self.get_topics_by_name("state/kappac")[0]
         for depth, ts_range in self.timestamp_ranges.items():
-            kappac_msgs = self.get_messages(kappac_topic, ts_range=ts_range, generator_count=-1)
+            kappac_msgs = self.get_all_messages(kappac_topic, ts_range=ts_range)
 
             viable_ts_msg = list()
             for ts, _, kc_msg in kappac_msgs:
@@ -686,14 +687,32 @@ class NeedleDataBagParser(TimestampDependentExperimentBagParser):
         )
 
         # topic names
-        kappac_topic = self.get_topics_by_name("state/kappac")
-        winit_topic  = self.get_topics_by_name("state/winit")
-        shape_topic  = self.get_topics_by_name("state/current_shape")
+        kappac_topic = self.get_topics_by_name("state/kappac")[0]
+        winit_topic  = self.get_topics_by_name("state/winit")[0]
+        shape_topic  = self.get_topics_by_name("state/current_shape")[0]
+        curv_topic   = self.get_topics_by_name("state/curvatures")[0]
 
         # parse the needle shape data
         for depth, ts_range in self.timestamp_ranges.items():
             target_ts = self.timestamps[depth]
 
+            # parse the needle's curvatures
+            closest_curv_ts, best_curv_msg = self.get_closest_message_to_timestamp(
+                curv_topic,
+                target_ts,
+                ts_range=ts_range,
+            )
+            best_curv = None
+            if best_curv_msg is not None:
+                best_curv_msg: Float64MultiArray
+                best_curv = np.asarray(best_curv_msg.data)
+
+            # if
+
+            self.needle_data[depth]["data"]["curvature"]       = best_curv
+            self.needle_data[depth]["timestamps"]["curvature"] = closest_curv_ts
+            
+            # parse the needle's kappa c
             closest_kc_ts, best_kc_msg = self.get_closest_message_to_timestamp(
                 kappac_topic,
                 target_ts,
@@ -706,8 +725,8 @@ class NeedleDataBagParser(TimestampDependentExperimentBagParser):
 
             # if
 
-            self.needle_data[depth]["data"]["kappa_c"]      = best_kc
-            self.needle_data[depth]["timestamp"]["kappa_c"] = closest_kc_ts
+            self.needle_data[depth]["data"]["kappa_c"]       = best_kc
+            self.needle_data[depth]["timestamps"]["kappa_c"] = closest_kc_ts
 
             # parse the needle's winit
             closest_winit_ts, best_winit_msg = self.get_closest_message_to_timestamp(
@@ -734,7 +753,7 @@ class NeedleDataBagParser(TimestampDependentExperimentBagParser):
             best_shape = None
             if best_shape_msg is not None:
                 best_shape_msg: PoseArray
-                best_shape = msg2poses(best_shape)[:, :3, 3] # take only the positions
+                best_shape = nss_util.msg2poses(best_shape_msg)[:, :3, 3] # take only the positions
 
             # if
 
@@ -758,7 +777,7 @@ class NeedleDataBagParser(TimestampDependentExperimentBagParser):
             sub_odir = os.path.join(odir, str(depth))
             os.makedirs(sub_odir, exist_ok=True)
 
-            with pd.ExcelWriter(os.path.join(sub_odir, filename)) as xl_writer:
+            with pd.ExcelWriter(os.path.join(sub_odir, filename), engine='xlsxwriter') as xl_writer:
                 # write the timestamp information (timestamps grabbed)
                 ts_df = pd.DataFrame.from_dict(data_ts_dict["timestamps"], orient='index')
                 ts_df.loc["target"]    = self.timestamps[depth]
@@ -769,6 +788,7 @@ class NeedleDataBagParser(TimestampDependentExperimentBagParser):
                     xl_writer,
                     sheet_name="ROS timestamps",
                     index=True,
+                    header=False,
                 )
 
                 # write the data values
@@ -778,6 +798,7 @@ class NeedleDataBagParser(TimestampDependentExperimentBagParser):
                         xl_writer,
                         sheet_name=data_name,
                         index=False,
+                        header=False,
                     )
 
                 # for
@@ -798,6 +819,7 @@ class FBGSensorDataBagParser(TimestampDependentExperimentBagParser):
     DEFAULT_TOPICS_OF_INTEREST = [
         "/needle/sensor/raw",
         "/needle/sensor/processed",
+        "/needle/state/curvatures",
     ]
 
     def __init__(
@@ -847,29 +869,39 @@ class FBGSensorDataBagParser(TimestampDependentExperimentBagParser):
     def parse_data(self):
         raw_topic = self.get_topics_by_name("sensor/raw")[0]
         prc_topic = self.get_topics_by_name("sensor/processed")[0]
+        crv_topic = self.get_topics_by_name("state/curvatures")[0]
 
         for depth in self.insertion_depths:
             ts_range = self.timestamp_ranges[depth]
 
             # get the timestamp and messages
-            raw_ts, raw_msgs = self.get_messages(
+            raw_ts_topic_msg = self.get_messages(
                 topic_name=raw_topic,
                 ts_range=ts_range,
-                generator_count=-1,
+                generator_count=1,
             )
-            prc_ts, prc_msgs = self.get_messages(
+            prc_ts_topic_msg = self.get_messages(
                 topic_name=prc_topic,
                 ts_range=ts_range,
-                generator_count=-1,
+                generator_count=1,
+            )
+            crv_ts_topic_msg = self.get_messages(
+                topic_name=crv_topic,
+                ts_range=ts_range,
+                generator_count=1,
             )
 
             # parse the results
             self.fbg_sensor_data[depth]["raw"] = np.stack(
-                ( np.append(ts, msg.data) for ts, msg in zip(raw_ts, raw_msgs)),
+                [ np.append(ts, msg.data) for ts, _, msg in raw_ts_topic_msg],
                 axis=0
             )
             self.fbg_sensor_data[depth]["processed"] = np.stack(
-                ( np.append(ts, msg.data) for ts, msg in zip(prc_ts, prc_msgs)),
+                [ np.append(ts, msg.data) for ts, _, msg in prc_ts_topic_msg ],
+                axis=0
+            )
+            self.fbg_sensor_data[depth]["curvatures"] = np.stack(
+                [ np.append(ts, msg.data) for ts, _, msg in crv_ts_topic_msg ],
                 axis=0
             )
 
@@ -880,7 +912,7 @@ class FBGSensorDataBagParser(TimestampDependentExperimentBagParser):
     # parse_data
 
     def save_results(self, odir: str, filename: str = None):
-        if filename is not None:
+        if filename is None:
             filename = "fbg_sensor_data.xlsx"
 
         elif not filename.endswith(".xlsx"):
@@ -891,7 +923,7 @@ class FBGSensorDataBagParser(TimestampDependentExperimentBagParser):
             sub_odir = os.path.join(odir, str(depth))
             os.makedirs(sub_odir, exist_ok=True)
 
-            with pd.ExcelWriter(os.path.join(sub_odir, filename)) as xl_writer:
+            with pd.ExcelWriter(os.path.join(sub_odir, filename), engine='xlsxwriter') as xl_writer:
                 raw_df = pd.DataFrame(
                     data["raw"],
                     columns=["timestamp"] + [
@@ -903,7 +935,8 @@ class FBGSensorDataBagParser(TimestampDependentExperimentBagParser):
                     xl_writer,
                     sheet_name="raw wavelengths",
                     index=True,
-                    columns=True
+                    header=True,
+                    columns=raw_df.columns,
                 )
 
                 prc_df = pd.DataFrame(
@@ -917,7 +950,24 @@ class FBGSensorDataBagParser(TimestampDependentExperimentBagParser):
                     xl_writer,
                     sheet_name="processed wavelengths",
                     index=True,
-                    columns=True
+                    header=True,
+                    columns=prc_df.columns,
+                )
+
+                crv_df = pd.DataFrame(
+                    data["curvatures"],
+                    columns=["timestamp"] + [
+                        f"curvature {i//2} {'x' if i % 2 == 0 else 'y'}"
+                        for i in range(data["curvatures"].shape[1]-1)
+                    ],
+                ).set_index("timestamp")
+
+                crv_df.to_excel(
+                    xl_writer,
+                    sheet_name="curvatures",
+                    index=True,
+                    header=True,
+                    columns=crv_df.columns,
                 )
 
             # with

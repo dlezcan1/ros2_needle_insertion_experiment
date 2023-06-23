@@ -5,6 +5,22 @@
     "version": "0.2.0",
     "configurations": [
         {
+            "name": "Python: Remote Attach Debugger",
+            "type": "python",
+            "request": "attach",
+            "connect": {
+                "host": "localhost",
+                "port": 4444
+            },
+            // "pathMappings": [
+            //     {
+            //         "localRoot": "${workspaceFolder}",
+            //         "remoteRoot": "."
+            //     }
+            // ],
+            "justMyCode": true
+        },
+        {
             "name": "Python: Current File",
             "type": "python",
             "request": "launch",
@@ -14,6 +30,6 @@
             "args": [
                 "<bag directory>",
             ]
-        }
+        },
     ]
 }
