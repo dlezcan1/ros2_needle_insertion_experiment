@@ -162,6 +162,24 @@ class TimestampDependentExperimentBagParser(ExperimentBagParser, ABC):
 
     # determine_timestamps_closest_to_target
 
+    @staticmethod
+    def determine_median_timestamp(timestamps: Union[List, np.ndarray]):
+        """ Determine which timestamp is the median one"""
+        timestamps = np.asarray(timestamps)
+
+        median_ts = np.median(timestamps)
+
+        if median_ts in timestamps:
+            return median_ts
+        
+        closest_ts = timestamps[
+            np.argmin(np.abs(timestamps - median_ts))
+        ]
+
+        return closest_ts
+
+    # determine_median_timestamp
+
 # class: TimestampDependentExperimentBagParser
 
 
@@ -240,33 +258,67 @@ class CameraDataBagParser(TimestampDependentExperimentBagParser):
     # camerainfo_msg2dict
 
     def determine_timestamps(self, inplace: bool = False):
-        assert self.target_timestamps is not None, (
-            "You must configure the target timestamps for each of the insertion depths"
+        assert (
+            self.target_timestamps is not None
+            or self.timestamp_ranges is not None
+        ), (
+            "You must configure the target timestamps for each of the insertion depths and/or the timestamp ranges"
         )
+        timestamps = dict()
+        if self.target_timestamps is not None:
+            key_topic_1 = self.get_topics_by_name("state/gt_shape")[0]
+            key_topic_2 = self.get_topics_by_name("left/image_raw")[0]
 
-        key_topic_1 = self.get_topics_by_name("state/gt_shape")[0]
-        key_topic_2 = self.get_topics_by_name("left/image_raw")[0]
-
-        timestamps = self.determine_timestamps_closest_to_target(
-            key_topic_1,
-            self.target_timestamps,
-            ts_range=self.timestamp_ranges
-        )
-        if any(v is None for v in timestamps.values()):
-            timestamps_2 = self.determine_timestamps_closest_to_target(
-                key_topic_2,
-                {
-                    depth: target_ts
-                    for depth, target_ts in self.target_timestamps
-                    if timestamps.get(depth, None) is None
-                },
+            timestamps = self.determine_timestamps_closest_to_target(
+                key_topic_1,
+                self.target_timestamps,
                 ts_range=self.timestamp_ranges
             )
+            if any(v is None for v in timestamps.values()):
+                timestamps_2 = self.determine_timestamps_closest_to_target(
+                    key_topic_2,
+                    {
+                        depth: target_ts
+                        for depth, target_ts in self.target_timestamps
+                        if timestamps.get(depth, None) is None
+                    },
+                    ts_range=self.timestamp_ranges
+                )
 
-            # update timestamps
-            timestamps.update(timestamps_2)
+                # update timestamps
+                timestamps.update(timestamps_2)
 
-        # if
+            # if
+        # if: target timestamps added
+        else:
+            gtshape_topic = self.get_topics_by_name("state/gt_shape")[0]
+            leftimg_topic = self.get_topics_by_name("left/image_raw")[0]
+            for depth, ts_range in self.timestamp_ranges.items():
+                gtshape_msgs = self.get_all_messages(gtshape_topic, ts_range=ts_range)
+                
+                ts_depth = np.asarray([
+                    ts for ts, *_ in gtshape_msgs
+                ])
+                
+                if len(ts_depth) == 0:
+                    warnings.warn(f"Camera data did not find any messages for {gtshape_topic} when determining timestamps!")
+                    leftimg_msgs = self.get_all_messages(leftimg_topic, ts_range=ts_range)
+                    ts_depth = np.asarray([
+                        ts for ts, *_ in leftimg_msgs
+                    ])
+
+                # if
+
+                if len(ts_depth) == 0: # skip this one
+                    warnings.warn(f"Camera data did not have any timestamp information for insertion depth {depth} mm")
+                    continue
+
+                timestamps[depth] = self.determine_median_timestamp(ts_depth)
+
+            # for
+
+        # else
+
 
         if inplace:
             self.timestamps = timestamps
@@ -284,10 +336,10 @@ class CameraDataBagParser(TimestampDependentExperimentBagParser):
         gtshape_topic   = self.get_topics_by_name("needle/state/gt_shape")[0]
 
         leftimg_topic   = self.get_topics_by_name("left/image_raw")[0]
-        rightimg_topic  = self.get_topics_by_name("righ/image_raw")[0]
+        rightimg_topic  = self.get_topics_by_name("right/image_raw")[0]
 
         leftinfo_topic  = self.get_topics_by_name("left/camera_info")[0]
-        rightinfo_topic = self.get_topics_by_name("righ/camera_info")[0]
+        rightinfo_topic = self.get_topics_by_name("right/camera_info")[0]
 
         for depth, target_ts in self.timestamps.items():
             ts_range = self.timestamp_ranges.get(depth)
@@ -317,18 +369,22 @@ class CameraDataBagParser(TimestampDependentExperimentBagParser):
                 target_ts,
                 ts_range=ts_range,
             )
-            closest_linfo_ts, best_linfo_msg = self.get_closest_message_to_timestamp(
-                leftinfo_topic,
-                closest_limg_ts,
-                ts_range=ts_range,
-            )
+            closest_linfo_ts, best_linfo_msg = None, None
+            if closest_limg_ts is not None:
+                closest_linfo_ts, best_linfo_msg = self.get_closest_message_to_timestamp(
+                    leftinfo_topic,
+                    closest_limg_ts,
+                    ts_range=ts_range,
+                )
+
+            # if
 
             best_limg = None
             if best_limg_msg is not None:
                 best_limg_msg: Image
                 best_limg = pgr_util.ImageConversions.ImageMsgTocv(best_limg_msg)
 
-            self.camera_data[depth]["data"]["left_image"]      = best_limg
+            self.camera_data[depth]["data"]["left_image"]       = best_limg
             self.camera_data[depth]["timestamps"]["left_image"] = closest_limg_ts
 
             # if
@@ -339,7 +395,7 @@ class CameraDataBagParser(TimestampDependentExperimentBagParser):
 
             # if
 
-            self.camera_data[depth]["data"]["left_info"]      = best_linfo
+            self.camera_data[depth]["data"]["left_info"]       = best_linfo
             self.camera_data[depth]["timestamps"]["left_info"] = closest_linfo_ts
 
             # - right image
@@ -348,18 +404,22 @@ class CameraDataBagParser(TimestampDependentExperimentBagParser):
                 target_ts,
                 ts_range=ts_range,
             )
-            closest_rinfo_ts, best_rinfo_msg = self.get_closest_message_to_timestamp(
-                rightinfo_topic,
-                closest_rimg_ts,
-                ts_range=ts_range,
-            )
+            closest_rinfo_ts, best_rinfo_msg = None, None
+            if closest_rimg_ts is not None:
+                closest_rinfo_ts, best_rinfo_msg = self.get_closest_message_to_timestamp(
+                    rightinfo_topic,
+                    closest_rimg_ts,
+                    ts_range=ts_range,
+                )
+
+            # if
 
             best_rimg = None
             if best_rimg_msg is not None:
                 best_rimg_msg: Image
                 best_rimg = pgr_util.ImageConversions.ImageMsgTocv(best_rimg_msg)
 
-            self.camera_data[depth]["data"]["right_image"]      = best_rimg
+            self.camera_data[depth]["data"]["right_image"]       = best_rimg
             self.camera_data[depth]["timestamps"]["right_image"] = closest_rimg_ts
 
             # if
@@ -370,7 +430,7 @@ class CameraDataBagParser(TimestampDependentExperimentBagParser):
 
             # if
 
-            self.camera_data[depth]["data"]["right_info"]      = best_rinfo
+            self.camera_data[depth]["data"]["right_info"]       = best_rinfo
             self.camera_data[depth]["timestamps"]["right_info"] = closest_rinfo_ts
 
         # for
@@ -414,11 +474,11 @@ class CameraDataBagParser(TimestampDependentExperimentBagParser):
                 # if
 
                 # write the images
-                left_img = data_ts_dict["data"].get("left_img", None)
+                left_img = data_ts_dict["data"].get("left_image", None)
                 if left_img is not None:
                     cv.imwrite(
                         os.path.join(sub_odir, "left.png"),
-                        left_img,
+                        cv.cvtColor(left_img, cv.COLOR_RGB2BGR),
                     )
                     print("Saved image to:", os.path.join(sub_odir, "left.png"))
 
@@ -436,11 +496,11 @@ class CameraDataBagParser(TimestampDependentExperimentBagParser):
 
                 # if
 
-                right_img = data_ts_dict["data"].get("right_img", None)
+                right_img = data_ts_dict["data"].get("right_image", None)
                 if right_img is not None:
                     cv.imwrite(
                         os.path.join(sub_odir, "right.png"),
-                        right_img,
+                        cv.cvtColor(right_img, cv.COLOR_RGB2BGR),
                     )
                     print("Saved image to:", os.path.join(sub_odir, "right.png"))
 
@@ -654,21 +714,25 @@ class NeedleDataBagParser(TimestampDependentExperimentBagParser):
         for depth, ts_range in self.timestamp_ranges.items():
             kappac_msgs = self.get_all_messages(kappac_topic, ts_range=ts_range)
 
-            viable_ts_msg = list()
+            viable_ts_msgs = list()
             for ts, _, kc_msg in kappac_msgs:
                 kc_msg: Float64MultiArray
 
                 if all(kc == 0 for kc in kc_msg.data): # try to skip all zero kappa c
                     continue
 
-                viable_ts_msg.append((ts, kc_msg))
+                viable_ts_msgs.append((ts, kc_msg))
 
             # for
+            best_ts = self.determine_median_timestamp(
+                [ts for ts, *_ in kappac_msgs]
+            )
+            if len(viable_ts_msgs) > 0:
+                best_ts = self.determine_median_timestamp(
+                    [ts for ts, *_ in  viable_ts_msgs]
+                )
 
-            best_ts = kappac_msgs[len(kappac_msgs)//2][0]
-            if len(viable_ts_msg) > 0:
-                best_ts = viable_ts_msg[len(viable_ts_msg)//2][0]
-
+            # if
             else:
                 warnings.warn(f"Insertion Depth {depth} mm has kappa_c = 0 for all messages.")
 
@@ -1101,9 +1165,10 @@ class InsertionExperimentBagParser( ExperimentBagParser ):
         camera_timestamps = None
         if self._to_parse["camera"]:
             self.camera_parser.configure_timestamp_ranges(robot_timestamp_ranges)
-            self.camera_parser.configure_target_timestamps(needle_timestamps)
+            if needle_timestamps is not None:
+                self.camera_parser.configure_target_timestamps(needle_timestamps)
 
-            camera_timestamps = self.camera_parser.determine_timestamps()
+            camera_timestamps = self.camera_parser.determine_timestamps(inplace=True)
 
             camera_data = self.camera_parser.parse_data()
 
@@ -1131,6 +1196,7 @@ class InsertionExperimentBagParser( ExperimentBagParser ):
                 continue
 
             if not parser.is_parsed():
+                warnings.warn(f"Parser {parser.__class__.__name__} is not parsed!")
                 continue
 
             parser.save_results(odir=odir)
