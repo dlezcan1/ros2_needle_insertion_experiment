@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 import sqlite3
 import cv2 as cv
-from openpyxl import Workbook as ExcelWB
+import matplotlib.pyplot as plt
 
 from sensor_msgs.msg import (
     CameraInfo,
@@ -21,8 +21,9 @@ from geometry_msgs.msg import (
     PoseArray,
 )
 
+import needle_shape_sensing as nss
 from .bag_file_parser import BagFileParser
-import needle_shape_publisher.utilities as nss_util
+import needle_shape_publisher.utilities as nsp_util
 
 import pgr_stereo_camera.utilities as pgr_util
 
@@ -75,6 +76,12 @@ class ExperimentBagParser(ABC, BagFileParser):
         return list(filter(lambda topic: name in topic, topic_list))
 
     # get_topics_by_name
+
+    def plot_results(self, odir: str = None, show: bool = False):
+        """ Plot the results of the work """
+        pass
+
+    # plot_results
 
 # class: ExperimentBagParser
 
@@ -353,7 +360,7 @@ class CameraDataBagParser(TimestampDependentExperimentBagParser):
             best_gtshape = None
             if best_gtshape_msg is not None:
                 best_gtshape_msg: PoseArray
-                best_gtshape = nss_util.msg2poses(best_gtshape_msg)[:, :3, 3]
+                best_gtshape = nsps_util.msg2poses(best_gtshape_msg)[:, :3, 3]
 
             # if
             self.camera_data[depth]["data"]["gt_shape"]       = best_gtshape
@@ -603,6 +610,40 @@ class RobotDataBagParser(ExperimentBagParser):
 
     # parse_data
 
+    def plot_results(self, odir: str = None, show: bool = False):
+        fig, ax = plt.subplots()
+
+        ts_topic_msgs: List[Tuple[int, str, PoseStamped]] = self.get_all_messages(self.key_topic)
+
+        ts_stage_poses = np.stack(
+            [
+                [ts, msg.pose.position.x, msg.pose.position.y, msg.pose.position.z]
+                for ts, _, msg in ts_topic_msgs
+            ],
+            axis=0
+        )
+        ts          = ts_stage_poses[:, 0]
+        stage_poses = ts_stage_poses[:, 1:]
+
+        ax.plot(ts, stage_poses, '.')
+        ax.legend(["x", "y", "z"])
+        ax.set_xlabel("timestamp")
+        ax.set_ylabel("Stage Axis Position")
+        ax.set_title(f"Robot Stage Needle Pose: {self.key_topic}")
+
+        if odir is not None:
+            os.makedirs(odir, exist_ok=True)
+            out_file = os.path.join(odir, "robot_data_stage_poses.png")
+            fig.savefig(out_file)
+            print("Saved figure robot data to:", out_file)
+
+        # if
+
+        if show:
+            plt.show()
+
+    # plot_results
+
     def save_results(self, odir: str, filename: str = None):
         assert self.insertion_depth_timestamp_ranges is not None, (
             "Robot data has not been parsed yet."
@@ -817,7 +858,7 @@ class NeedleDataBagParser(TimestampDependentExperimentBagParser):
             best_shape = None
             if best_shape_msg is not None:
                 best_shape_msg: PoseArray
-                best_shape = nss_util.msg2poses(best_shape_msg)[:, :3, 3] # take only the positions
+                best_shape = nsp_util.msg2poses(best_shape_msg)[:, :3, 3] # take only the positions
 
             # if
 
@@ -975,6 +1016,113 @@ class FBGSensorDataBagParser(TimestampDependentExperimentBagParser):
 
     # parse_data
 
+    def plot_results(self, odir: str = None, show: bool = False):
+        raw_topic = self.get_topics_by_name("sensor/raw")[0]
+        prc_topic = self.get_topics_by_name("sensor/processed")[0]
+        crv_topic = self.get_topics_by_name("state/curvatures")[0]
+
+        # get the messages and stack into usable arrays
+        raw_ts_msgs: List[Tuple[int, str, Float64MultiArray]] = self.get_all_messages(raw_topic)
+        prc_ts_msgs: List[Tuple[int, str, Float64MultiArray]] = self.get_all_messages(prc_topic)
+        crv_ts_msgs: List[Tuple[int, str, Float64MultiArray]] = self.get_all_messages(crv_topic)
+
+        raw_ts_wavlengths = np.stack(
+            [
+                [ts, *msg.data]
+                for ts, _, msg in raw_ts_msgs
+            ],
+            axis=0
+        )
+        prc_ts_wavlengths = np.stack(
+            [
+                [ts, *msg.data]
+                for ts, _, msg in prc_ts_msgs
+            ],
+            axis=0
+        )
+        ts_curvatures = np.stack(
+            [
+                [ts, *msg.data]
+                for ts, _, msg in crv_ts_msgs
+            ],
+            axis=0
+        )
+
+        # number of FBG active areas and channels
+        num_aas = int((ts_curvatures.shape[1] - 1)/2)
+        num_chs = (raw_ts_wavlengths.shape[1] - 1) // num_aas
+        ch_aa_names, ch_names, aa_names = nss.sensorized_needles.FBGNeedle.generate_ch_aa(num_chs, num_aas)
+
+        # plot the wavelengths
+        fig_wls, axs_wls = plt.subplots(
+            nrows=2, 
+            ncols=num_aas, 
+            sharex=True,
+            figsize=(18, 12),
+        )
+
+        for aa_i in range(num_aas):
+            mask_aa_i = np.asarray([False] + [aa_names[aa_i] in ch_aa for ch_aa in ch_aa_names])
+            
+            axs_wls[0, aa_i].plot(
+                raw_ts_wavlengths[:, 0], 
+                raw_ts_wavlengths[:, mask_aa_i],
+                '.'
+            )
+            axs_wls[0, aa_i].legend(ch_names)
+            axs_wls[0, aa_i].set_title(aa_names[aa_i])
+
+            axs_wls[1, aa_i].plot(
+                prc_ts_wavlengths[:, 0], 
+                prc_ts_wavlengths[:, mask_aa_i],
+                '.'
+            )
+            axs_wls[1, aa_i].legend(ch_names)
+            axs_wls[1, aa_i].set_xlabel("Timestamps")
+
+            axs_wls[1, 0].get_shared_y_axes().join(axs_wls[1, 0], axs_wls[1, aa_i])
+
+        # for
+        axs_wls[0, 0].set_ylabel("Raw Wavelengths (nm)")
+        axs_wls[1, 0].set_ylabel("Processed Wavelengths (nm)")
+
+        fig_wls.suptitle(f"Wavelengths of FBG Sensors: {raw_topic} & {prc_topic}")
+
+        # plot curvatures
+        fig_crvs, axs_crvs = plt.subplots(
+            nrows=2, 
+            ncols=1,
+            sharex=True,
+            figsize=(10, 8),
+        )
+
+        axs_crvs[0].plot(ts_curvatures[:, 0], ts_curvatures[:, 1::2], '.')
+        axs_crvs[0].set_ylabel("X Curvature")
+        axs_crvs[0].legend(ch_names)
+
+        axs_crvs[1].plot(ts_curvatures[:, 0], ts_curvatures[:, 2::2], '.')
+        axs_crvs[1].set_ylabel("Y Curvature")
+        axs_crvs[1].legend(ch_names)
+
+        fig_crvs.suptitle(f"Curvatures Sensed by FBG Sensors: {crv_topic}")
+
+        if odir is not None:
+            os.makedirs(odir, exist_ok=True)
+            out_file_wls = os.path.join(odir, "sensor_data_wavelengths.png")
+            fig_wls.savefig(out_file_wls)
+            print("Saved figure of wavelengths to:", out_file_wls)
+
+            out_file_crvs = os.path.join(odir, "sensor_data_curvatures.png")
+            fig_crvs.savefig(out_file_crvs)
+            print("Saved figure of curvatures to:", out_file_crvs)
+
+        # if
+
+        if show:
+            plt.show() 
+
+    # plot_results
+
     def save_results(self, odir: str, filename: str = None):
         if filename is None:
             filename = "fbg_sensor_data.xlsx"
@@ -1129,6 +1277,16 @@ class InsertionExperimentBagParser( ExperimentBagParser ):
 
     # configure
 
+    def get_parsers(self) -> Dict[str, ExperimentBagParser]:
+        return {
+            "robot" : self.robot_parser,
+            "camera": self.camera_parser,
+            "needle": self.needle_parser,
+            "fbg"   : self.fbg_parser,
+        }
+    
+    # get_parsers
+
     def parse_data(self):
         robot_timestamp_ranges = {
             depth: (None, None)
@@ -1184,14 +1342,7 @@ class InsertionExperimentBagParser( ExperimentBagParser ):
     # parse_data
 
     def save_results(self, odir: str, filename: str = None):
-        parsers: Dict[str, ExperimentBagParser] = {
-            "robot" : self.robot_parser,
-            "camera": self.camera_parser,
-            "needle": self.needle_parser,
-            "fbg"   : self.fbg_parser,
-        }
-
-        for key, parser in parsers.items():
+        for key, parser in self.get_parsers().items():
             if not self._to_parse[key]:
                 continue
 
@@ -1204,5 +1355,22 @@ class InsertionExperimentBagParser( ExperimentBagParser ):
         # for
 
     # save_results
+
+    def plot_results(self, odir: str = None, show: bool = False):
+        for key, parser in self.get_parsers().items():
+            if not self._to_parse[key]:
+                continue
+
+            if not parser.is_parsed():
+                warnings.warn(f"Parser {parser.__class__.__name__} is not parsed! Can't plot data")
+                continue
+
+            # if
+
+            parser.plot_results(odir=odir, show=show)
+
+        # for
+
+    # plot_results
 
 # class: InsertionExperimentBag

@@ -46,6 +46,11 @@ def __get_argparser():
         help="The output directory to save the results to."
     )
 
+    parser.add_argument(
+        "--show-plots",
+        action="store_true"
+    )
+
     for data_type in [
         "robot", 
         "needle", 
@@ -59,9 +64,7 @@ def __get_argparser():
 
     parser.add_argument("--debug", action="store_true")
 
-
     return parser
-
 
 # __get_argparser
 
@@ -96,10 +99,14 @@ def main( args=None ):
 
     bag.parse_data()
 
+    bag.plot_results(
+        odir=ARGS.odir if not ARGS.show_plots else None,
+        show=ARGS.show_plots,
+    )
+    
     bag.save_results(
         odir=ARGS.odir,
     )
-
 
 # main
 
