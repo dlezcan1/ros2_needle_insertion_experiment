@@ -568,7 +568,8 @@ class RobotDataBagParser(ExperimentBagParser):
         self.key_topic = self.get_topics_by_name("state/needle_pose")[0]
 
         # data members (from parsing the bag)
-        self.insertion_depth_timestamp_ranges = None
+        self.insertion_depth_timestamp_ranges               = None
+        self.insertion_depth_poses: Dict[float, np.ndarray] = dict()
 
     # __init__
 
@@ -590,11 +591,15 @@ class RobotDataBagParser(ExperimentBagParser):
         insertion_depth_timestamp_ranges = defaultdict(list)
 
         for i, (ts, topic, msg) in enumerate(bag_rows):
+            msg: PoseStamped
             insertion_depth = self.get_insertion_depth(msg)
 
-            for d in self.insertion_depths:
-                if abs(d - insertion_depth) < 1e-6:
-                    insertion_depth_timestamp_ranges[d].append(ts)
+            for target_depth in self.insertion_depths:
+                if abs(target_depth - insertion_depth) < 1e-6:
+                    tf = np.eye(4)
+                    tf[:3, 3], tf[:3, :3] = nsp_util.msg2pose(msg.pose)
+                    self.insertion_depth_poses[target_depth] = tf
+                    insertion_depth_timestamp_ranges[target_depth].append(ts)
                     break
                 # if
             # for
@@ -668,6 +673,24 @@ class RobotDataBagParser(ExperimentBagParser):
             "Saved robot timestamp data to:",
             os.path.join(odir, filename)
         )
+
+        # save the needle stage pose for each of the insertion depths
+        for depth, pose in self.insertion_depth_poses.items():
+            sub_odir = os.path.join(odir, str(depth))
+            os.makedirs(sub_odir, exist_ok=True)
+
+            pose_df = pd.DataFrame(pose)
+
+            pose_df.to_csv(
+                os.path.join(sub_odir, "robot_pose.csv"),
+                header=False,
+                index=False,
+            )
+            print(
+                f"Saved robot pose for insertion depth {depth} mm to:",
+                os.path.join(sub_odir, "robot_pose.csv")
+            )
+
 
     # save_results
 
