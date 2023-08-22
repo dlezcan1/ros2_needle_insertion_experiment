@@ -20,11 +20,11 @@ class BagFileParser:
 
             # with
         # if
-        
+
         # connect to sql
         self.bag_db = (
             bag_db
-            if bag_db is not None else 
+            if bag_db is not None else
             sqlite3.connect( os.path.join( bagdir, bagfile ) )
         )
         self.cursor = self.bag_db.cursor()
@@ -51,7 +51,7 @@ class BagFileParser:
         elif topic_id is not None:
             topic_msg = self.topic_msg[self.topic_name[topic_id]]
 
-        else: 
+        else:
             raise ValueError("'either topic_name' or 'topic_id' must be provided.")
 
         return deserialize_message(msg, topic_msg)
@@ -60,10 +60,21 @@ class BagFileParser:
 
     def get_all_messages(
         self,
-        topic_name = None, 
-        ts_range: tuple = None, 
-        ts_range_exclude: tuple = None, 
+        topic_name = None,
+        ts_range: tuple = None,
+        ts_range_exclude: tuple = None,
     ):
+        """ Returns all messages from a topic
+
+            Args:
+                topic_name: string or list of strings of the topic name(s) to get
+                ts_range: tuple of timestamps (Default = (None, None)) to include
+                ts_range_exclude: tuple of timestamps (Default = (None, None)) to exclude
+
+            Returns:
+                List of (timestamp, topic_name, message)
+
+        """
         return next(
             self.get_messages(
                 topic_name=topic_name,
@@ -72,14 +83,14 @@ class BagFileParser:
                 generator_count=-1
             )
         )
-    
+
     # get_all_messages
 
     def get_messages(
-        self, 
-        topic_name = None, 
-        ts_range: tuple = None, 
-        ts_range_exclude: tuple = None, 
+        self,
+        topic_name = None,
+        ts_range: tuple = None,
+        ts_range_exclude: tuple = None,
         generator_count: int = -1,
     ):
         """
@@ -88,8 +99,8 @@ class BagFileParser:
             :param ts_range: tuple of timestamps (Default = (None, None)) to include
             :param ts_range_exclude: tuple of timestamps (Default = (None, None)) to exclude
             :param generator_count: int of how many values to get per generator (-1 gets all as direct list)
-            :return: 
-                - generator_count = -1 -> generator for a single list of tuples(timestamp, message)
+            :return:
+                - generator_count = -1 -> generator for a single list of tuples(timestamp, topic_name, message)
                 - generator_count = 1 -> generator of tuples (timestamp, topic name, message)
                 - generator_count > 1 -> generator of list of tuples (timestamp, topic name, message) with length (generator_count)
 
@@ -143,8 +154,8 @@ class BagFileParser:
 
         # combine conditions
         if len(conditions) > 0:
-            sql_cmd += " WHERE " + " AND ".join(conditions) 
-            
+            sql_cmd += " WHERE " + " AND ".join(conditions)
+
         sql_cmd += " ORDER BY timestamp ASC"
 
         rows = self.cursor.execute( sql_cmd )
@@ -153,8 +164,8 @@ class BagFileParser:
         if generator_count > 0:
             while True:
                 next_fetch = [
-                    (ts, self.topic_name[id], self.deserialize_message(msg_srl, topic_id=id)) 
-                    for ts, id, msg_srl 
+                    (ts, self.topic_name[id], self.deserialize_message(msg_srl, topic_id=id))
+                    for ts, id, msg_srl
                     in rows.fetchmany(generator_count)
                 ]
                 if len(next_fetch) == 0:
@@ -163,12 +174,12 @@ class BagFileParser:
                 if len(next_fetch) == 1 and generator_count == 1:
                     next_fetch = next_fetch[0]
 
-                yield next_fetch 
+                yield next_fetch
             # while
         # if
         else: # get all
             ret_val = [
-                (ts, self.topic_name[id], self.deserialize_message(msg_srl, topic_id=id)) 
+                (ts, self.topic_name[id], self.deserialize_message(msg_srl, topic_id=id))
                 for ts, id, msg_srl
                 in rows.fetchall()
             ]
@@ -179,17 +190,17 @@ class BagFileParser:
     # get_messages
 
     def get_closest_message_to_timestamp(
-        self, 
-        topic_name, 
-        target_timestamp, 
-        ts_range: tuple = None, 
+        self,
+        topic_name,
+        target_timestamp,
+        ts_range: tuple = None,
         ts_range_exclude: tuple = None,
     ):
         closest_ts  = None
         closest_msg = None
 
         for ts, _, msg in self.get_messages(
-            topic_name, 
+            topic_name,
             ts_range=ts_range,
             ts_range_exclude=ts_range_exclude,
             generator_count=1,
@@ -208,7 +219,7 @@ class BagFileParser:
         # for
 
         return closest_ts, closest_msg
-    
+
     # get_closest_message_to_timestamp
 
 # class: BagFileParser

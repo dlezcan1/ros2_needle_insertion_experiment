@@ -59,7 +59,7 @@ class ExperimentBagParser(ABC, BagFileParser):
     def is_parsed(self):
         """ Return if the dataset is parsed or not """
         return False
-    
+
     # is_parsed
 
     @abstractmethod
@@ -137,8 +137,8 @@ class TimestampDependentExperimentBagParser(ExperimentBagParser, ABC):
         self,
         by_topic: str,
         target_timestamps: Dict[float, int],
-        ts_range: tuple = None,
-        ts_range_exclude: tuple = None,
+        ts_range: Union[tuple, Dict[float, Tuple[int, int]]] = None,
+        ts_range_exclude: Union[tuple, Dict[float, Tuple[int, int]]] = None,
         inplace: bool = False,
     ):
         """ Determines which timestamps to use based on a topic
@@ -151,8 +151,15 @@ class TimestampDependentExperimentBagParser(ExperimentBagParser, ABC):
 
         for depth, target_ts in target_timestamps.items():
             ts_range_d = ts_range
-            if ts_range_d is None and self.timestamp_ranges is not None:
+            if (
+                ((ts_range_d is None)
+                and (self.timestamp_ranges is not None))
+                or isinstance(ts_range_d, dict)
+            ):
                 ts_range_d = self.timestamp_ranges.get(depth, None)
+
+
+            # elif
 
             closest_ts, _ = self.get_closest_message_to_timestamp(
                 by_topic,
@@ -178,7 +185,7 @@ class TimestampDependentExperimentBagParser(ExperimentBagParser, ABC):
 
         if median_ts in timestamps:
             return median_ts
-        
+
         closest_ts = timestamps[
             np.argmin(np.abs(timestamps - median_ts))
         ]
@@ -245,9 +252,9 @@ class CameraDataBagParser(TimestampDependentExperimentBagParser):
         parsed = False
         if len(self.camera_data) > 0:
             parsed = True
-        
+
         return parsed
-    
+
     # is_parsed
 
     @staticmethod
@@ -276,17 +283,18 @@ class CameraDataBagParser(TimestampDependentExperimentBagParser):
             key_topic_1 = self.get_topics_by_name("state/gt_shape")[0]
             key_topic_2 = self.get_topics_by_name("left/image_raw")[0]
 
-            timestamps = self.determine_timestamps_closest_to_target(
+            timestamps= self.determine_timestamps_closest_to_target(
                 key_topic_1,
                 self.target_timestamps,
-                ts_range=self.timestamp_ranges
+                ts_range=self.timestamp_ranges,
             )
+
             if any(v is None for v in timestamps.values()):
                 timestamps_2 = self.determine_timestamps_closest_to_target(
                     key_topic_2,
                     {
                         depth: target_ts
-                        for depth, target_ts in self.target_timestamps
+                        for depth, target_ts in self.target_timestamps.items()
                         if timestamps.get(depth, None) is None
                     },
                     ts_range=self.timestamp_ranges
@@ -302,11 +310,11 @@ class CameraDataBagParser(TimestampDependentExperimentBagParser):
             leftimg_topic = self.get_topics_by_name("left/image_raw")[0]
             for depth, ts_range in self.timestamp_ranges.items():
                 gtshape_msgs = self.get_all_messages(gtshape_topic, ts_range=ts_range)
-                
+
                 ts_depth = np.asarray([
                     ts for ts, *_ in gtshape_msgs
                 ])
-                
+
                 if len(ts_depth) == 0:
                     warnings.warn(f"Camera data did not find any messages for {gtshape_topic} when determining timestamps!")
                     leftimg_msgs = self.get_all_messages(leftimg_topic, ts_range=ts_range)
@@ -360,7 +368,7 @@ class CameraDataBagParser(TimestampDependentExperimentBagParser):
             best_gtshape = None
             if best_gtshape_msg is not None:
                 best_gtshape_msg: PoseArray
-                best_gtshape = nsps_util.msg2poses(best_gtshape_msg)[:, :3, 3]
+                best_gtshape = nsp_util.msg2poses(best_gtshape_msg)[:, :3, 3]
 
             # if
             self.camera_data[depth]["data"]["gt_shape"]       = best_gtshape
@@ -532,7 +540,75 @@ class CameraDataBagParser(TimestampDependentExperimentBagParser):
             )
 
         # for
+
+        # handle video writing
+        self.write_video(os.path.join(odir, "insertion_experiment_video.avi"))
+
     # save_results
+
+    def write_video(
+            self, 
+            outfile: str,
+            fps: float = 30,
+            fourcc: str = "XVID",
+        ):
+        """ Writes the entire stereo video stream to file"""
+        video_writer: cv.VideoWriter = None
+
+        limg_topic = self.get_topics_by_name("left/image_raw")[0]
+        rimg_topic = self.get_topics_by_name("right/image_raw")[0]
+
+        # limg_ts_topic_msg
+        ts_topics_msg = self.get_messages(
+            [limg_topic, rimg_topic],
+            generator_count=1
+        )
+
+        limg = rimg = None
+        for ts, topic, msg in ts_topics_msg:
+            if topic == limg_topic:
+                limg = cv.cvtColor(
+                    pgr_util.ImageConversions.ImageMsgTocv(msg),
+                    cv.COLOR_RGB2BGR
+                )
+            # if
+
+            elif topic == rimg_topic:
+                rimg = cv.cvtColor(
+                    pgr_util.ImageConversions.ImageMsgTocv(msg),
+                    cv.COLOR_RGB2BGR
+                )
+            # elif
+
+            if (limg is None) or (rimg is None):
+                continue
+
+            # initalize video writer
+            lr_img = np.concatenate((limg, rimg), axis=1)
+            if video_writer is None:
+                video_writer = cv.VideoWriter(
+                    outfile,
+                    cv.VideoWriter.fourcc(*fourcc),
+                    fps,
+                    (lr_img.shape[1], lr_img.shape[0]),
+                    isColor=True,
+                )
+
+            # if
+
+            # write the frame
+            video_writer.write(lr_img)
+
+        # for
+
+        if video_writer is not None:
+            video_writer.release()
+            print(f"Recorded experiment video to: {outfile}")
+
+        # if
+
+    # write_video
+
 
 # class: CameraDataBagParser
 
@@ -577,9 +653,9 @@ class RobotDataBagParser(ExperimentBagParser):
         parsed = False
         if self.insertion_depth_timestamp_ranges is not None:
             parsed = True
-        
+
         return parsed
-    
+
     # is_parsed
 
     def parse_data(self):
@@ -759,9 +835,9 @@ class NeedleDataBagParser(TimestampDependentExperimentBagParser):
         parsed = False
         if len(self.needle_data) > 0:
             parsed = True
-        
+
         return parsed
-    
+
     # is_parsed
 
     def determine_timestamps(self, inplace: bool=False):
@@ -839,7 +915,7 @@ class NeedleDataBagParser(TimestampDependentExperimentBagParser):
 
             self.needle_data[depth]["data"]["curvature"]       = best_curv
             self.needle_data[depth]["timestamps"]["curvature"] = closest_curv_ts
-            
+
             # parse the needle's kappa c
             closest_kc_ts, best_kc_msg = self.get_closest_message_to_timestamp(
                 kappac_topic,
@@ -951,29 +1027,29 @@ class FBGSensorDataBagParser(TimestampDependentExperimentBagParser):
     ]
 
     def __init__(
-        self, 
-        bagdir: str, 
-        insertion_depths: List[float], 
-        bagfile: str = None, 
-        yamlfile: str = None, 
-        topics: List[str] = None, 
+        self,
+        bagdir: str,
+        insertion_depths: List[float],
+        bagfile: str = None,
+        yamlfile: str = None,
+        topics: List[str] = None,
         bag_db: sqlite3.Connection = None
     ):
         super().__init__(
-            bagdir, 
-            insertion_depths=insertion_depths, 
-            bagfile=bagfile, 
-            yamlfile=yamlfile, 
-            topics=topics if topics is not None else FBGSensorDataBagParser.DEFAULT_TOPICS_OF_INTEREST, 
+            bagdir,
+            insertion_depths=insertion_depths,
+            bagfile=bagfile,
+            yamlfile=yamlfile,
+            topics=topics if topics is not None else FBGSensorDataBagParser.DEFAULT_TOPICS_OF_INTEREST,
             bag_db=bag_db,
         )
-        
+
         # parsed data results
         # self.fbg_sensor_data is a dict of arrays with (ts, wavelengths (nm)) per row
         self.fbg_sensor_data = defaultdict(
             lambda: {
                 "raw": None,
-                "processed": None, 
+                "processed": None,
             },
         )
 
@@ -983,15 +1059,15 @@ class FBGSensorDataBagParser(TimestampDependentExperimentBagParser):
         parsed = False
         if len(self.fbg_sensor_data) > 0:
             parsed = True
-        
+
         return parsed
-    
+
     # is_parsed
 
     def determine_timestamps(self, inplace: bool = False):
         assert self.timestamp_ranges is not None, "Timestamp ranges need to be configured!"
         return self.timestamp_ranges
-    
+
     # determine_timestamps
 
     def parse_data(self):
@@ -1024,10 +1100,14 @@ class FBGSensorDataBagParser(TimestampDependentExperimentBagParser):
                 [ np.append(ts, msg.data) for ts, _, msg in raw_ts_topic_msg],
                 axis=0
             )
-            self.fbg_sensor_data[depth]["processed"] = np.stack(
-                [ np.append(ts, msg.data) for ts, _, msg in prc_ts_topic_msg ],
-                axis=0
-            )
+            try:
+                self.fbg_sensor_data[depth]["processed"] = np.stack(
+                    [ np.append(ts, msg.data) for ts, _, msg in prc_ts_topic_msg ],
+                    axis=0
+                )
+            except ValueError:
+                self.fbg_sensor_data[depth]["processed"] = np.zeros_like(self.fbg_sensor_data[depth]["raw"])
+
             self.fbg_sensor_data[depth]["curvatures"] = np.stack(
                 [ np.append(ts, msg.data) for ts, _, msg in crv_ts_topic_msg ],
                 axis=0
@@ -1056,13 +1136,18 @@ class FBGSensorDataBagParser(TimestampDependentExperimentBagParser):
             ],
             axis=0
         )
-        prc_ts_wavlengths = np.stack(
-            [
-                [ts, *msg.data]
-                for ts, _, msg in prc_ts_msgs
-            ],
-            axis=0
-        )
+        prc_ts_wavlengths = np.copy(raw_ts_wavlengths[0:1])
+        prc_ts_wavlengths[:, 1:] = 0 # set to zero
+        if len(prc_ts_msgs) > 0:
+            prc_ts_wavlengths = np.stack(
+                [
+                    [ts, *msg.data]
+                    for ts, _, msg in prc_ts_msgs
+                ],
+                axis=0
+            )
+
+        # if
         ts_curvatures = np.stack(
             [
                 [ts, *msg.data]
@@ -1078,17 +1163,17 @@ class FBGSensorDataBagParser(TimestampDependentExperimentBagParser):
 
         # plot the wavelengths
         fig_wls, axs_wls = plt.subplots(
-            nrows=2, 
-            ncols=num_aas, 
+            nrows=2,
+            ncols=num_aas,
             sharex=True,
             figsize=(18, 12),
         )
 
         for aa_i in range(num_aas):
             mask_aa_i = np.asarray([False] + [aa_names[aa_i] in ch_aa for ch_aa in ch_aa_names])
-            
+
             axs_wls[0, aa_i].plot(
-                raw_ts_wavlengths[:, 0], 
+                raw_ts_wavlengths[:, 0],
                 raw_ts_wavlengths[:, mask_aa_i],
                 '.'
             )
@@ -1096,7 +1181,7 @@ class FBGSensorDataBagParser(TimestampDependentExperimentBagParser):
             axs_wls[0, aa_i].set_title(aa_names[aa_i])
 
             axs_wls[1, aa_i].plot(
-                prc_ts_wavlengths[:, 0], 
+                prc_ts_wavlengths[:, 0],
                 prc_ts_wavlengths[:, mask_aa_i],
                 '.'
             )
@@ -1113,7 +1198,7 @@ class FBGSensorDataBagParser(TimestampDependentExperimentBagParser):
 
         # plot curvatures
         fig_crvs, axs_crvs = plt.subplots(
-            nrows=2, 
+            nrows=2,
             ncols=1,
             sharex=True,
             figsize=(10, 8),
@@ -1142,7 +1227,7 @@ class FBGSensorDataBagParser(TimestampDependentExperimentBagParser):
         # if
 
         if show:
-            plt.show() 
+            plt.show()
 
     # plot_results
 
@@ -1307,7 +1392,7 @@ class InsertionExperimentBagParser( ExperimentBagParser ):
             "needle": self.needle_parser,
             "fbg"   : self.fbg_parser,
         }
-    
+
     # get_parsers
 
     def parse_data(self):
@@ -1356,10 +1441,10 @@ class InsertionExperimentBagParser( ExperimentBagParser ):
         # if: camera
 
         return (
-            robot_timestamp_ranges, 
-            needle_data, 
+            robot_timestamp_ranges,
+            needle_data,
             fbg_data,
-            camera_data, 
+            camera_data,
         )
 
     # parse_data
