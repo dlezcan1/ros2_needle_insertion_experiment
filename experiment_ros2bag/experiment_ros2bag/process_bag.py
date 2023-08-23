@@ -51,15 +51,18 @@ def __get_argparser():
         action="store_true"
     )
 
-    for data_type in [
-        "robot", 
-        "needle", 
-        "fbg", 
-        "camera"
-    ]:
+    for data_type, topics in InsertionExperimentBagParser.DEFAULT_TOPICS_OF_INTEREST.items():
         parser.add_argument(
             f"--parse-{data_type}",
-            action="store_true"
+            action="store_true",
+        )
+
+        parser.add_argument(
+            f"--topics-{data_type}",
+            nargs="+",
+            default=topics,
+            help=f"The topics of interest for {data_type} parsing",
+            metavar=f"topics_{data_type.replace('-', '_')}",
         )
 
     parser.add_argument("--debug", action="store_true")
@@ -71,7 +74,8 @@ def __get_argparser():
 def main( args=None ):
     parser = __get_argparser()
 
-    ARGS = parser.parse_args( args )
+    ARGS        = parser.parse_args( args )
+    ARGS_KWARGS = dict(ARGS._get_kwargs())
 
     if ARGS.debug:
         PORT = 4444
@@ -83,18 +87,25 @@ def main( args=None ):
 
     # if: debugger
 
+    topics_of_interest = {
+        data_type: ARGS_KWARGS.get(f"topics_{data_type.replace('-', '_')}")
+        for data_type in InsertionExperimentBagParser.DEFAULT_TOPICS_OF_INTEREST.keys()
+    }
+
     bag = InsertionExperimentBagParser(
         bagdir=ARGS.bagdir,
         insertion_depths=ARGS.insertion_depths,
         bagfile=ARGS.bag_file,
         yamlfile=ARGS.yaml_file,
+        topics=topics_of_interest,
     )
 
     bag.configure(
-        parse_robot  = ARGS.parse_robot,
-        parse_needle = ARGS.parse_needle,
-        parse_fbg    = ARGS.parse_fbg,
-        parse_camera = ARGS.parse_camera,
+        parse_robot           = ARGS.parse_robot,
+        parse_needle          = ARGS.parse_needle,
+        parse_fbg             = ARGS.parse_fbg,
+        parse_camera          = ARGS.parse_camera,
+        parse_insertion_point = ARGS.parse_insertion_point,
     )
 
     bag.parse_data()

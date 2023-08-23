@@ -12,6 +12,7 @@
   <depend>sensor_msgs</depend>
   <depend>needle_shape_publisher</depend>
   <depend>pgr_stereo_camera</depend>
+  <depend>needle_insertion_robot_translation</depend>
 
   <test_depend>ament_copyright</test_depend>
   <test_depend>ament_flake8</test_depend>

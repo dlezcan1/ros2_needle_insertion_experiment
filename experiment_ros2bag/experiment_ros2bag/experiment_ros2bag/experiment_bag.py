@@ -19,6 +19,7 @@ from std_msgs.msg import Float64MultiArray
 from geometry_msgs.msg import (
     PoseStamped,
     PoseArray,
+    Point,
 )
 
 import needle_shape_sensing as nss
@@ -26,6 +27,8 @@ from .bag_file_parser import BagFileParser
 import needle_shape_publisher.utilities as nsp_util
 
 import pgr_stereo_camera.utilities as pgr_util
+
+from needle_insertion_robot_translation.nodes import CoordinateConversions as StageCoordinateConversions
 
 
 class ExperimentBagParser(ABC, BagFileParser):
@@ -249,11 +252,7 @@ class CameraDataBagParser(TimestampDependentExperimentBagParser):
     # __init__
 
     def is_parsed(self):
-        parsed = False
-        if len(self.camera_data) > 0:
-            parsed = True
-
-        return parsed
+        return len(self.camera_data) > 0
 
     # is_parsed
 
@@ -283,7 +282,7 @@ class CameraDataBagParser(TimestampDependentExperimentBagParser):
             key_topic_1 = self.get_topics_by_name("state/gt_shape")[0]
             key_topic_2 = self.get_topics_by_name("left/image_raw")[0]
 
-            timestamps= self.determine_timestamps_closest_to_target(
+            timestamps = self.determine_timestamps_closest_to_target(
                 key_topic_1,
                 self.target_timestamps,
                 ts_range=self.timestamp_ranges,
@@ -565,6 +564,7 @@ class CameraDataBagParser(TimestampDependentExperimentBagParser):
         )
 
         limg = rimg = None
+        saved_first_image_pair = False
         for ts, topic, msg in ts_topics_msg:
             if topic == limg_topic:
                 limg = cv.cvtColor(
@@ -582,6 +582,25 @@ class CameraDataBagParser(TimestampDependentExperimentBagParser):
 
             if (limg is None) or (rimg is None):
                 continue
+
+            # save each of the initial images
+            if not saved_first_image_pair:
+                odir = os.path.split(outfile)[0]
+                cv.imwrite(os.path.join(odir, "initial_left.png"), limg)
+                print(
+                    "Saved intial left image to:",
+                    os.path.join(odir, "initial_left.png")
+                )
+
+                cv.imwrite(os.path.join(odir, "initial_right.png"), rimg)
+                print(
+                    "Saved intial right image to:",
+                    os.path.join(odir, "initial_right.png")
+                )
+
+                saved_first_image_pair = True
+
+            # if
 
             # initalize video writer
             lr_img = np.concatenate((limg, rimg), axis=1)
@@ -717,6 +736,18 @@ class RobotDataBagParser(ExperimentBagParser):
             out_file = os.path.join(odir, "robot_data_stage_poses.png")
             fig.savefig(out_file)
             print("Saved figure robot data to:", out_file)
+
+            out_file = os.path.join(odir, "robot_data_stage_poses.csv")
+            pd.DataFrame(
+                ts_stage_poses,
+                columns=["timestamp", "x", "y", "z"],
+                index=None,
+            ).to_csv(
+                out_file,
+                header=True,
+                index=False,
+            )
+            print("Saved all robot data to:", out_file)
 
         # if
 
@@ -1303,12 +1334,219 @@ class FBGSensorDataBagParser(TimestampDependentExperimentBagParser):
 
 # class: FBGSensorDataBagParser
 
+class InsertionPointDataBagParser(TimestampDependentExperimentBagParser):
+    DEFAULT_TOPICS_OF_INTEREST = [
+        "/needle/state/skin_entry"
+    ]
+
+    def __init__(
+        self,
+        bagdir: str,
+        insertion_depths: List[float],
+        bagfile: str = None,
+        yamlfile: str = None,
+        topics: List[str] = None,
+        bag_db: sqlite3.Connection = None,
+    ):
+        super().__init__(
+            bagdir,
+            insertion_depths=insertion_depths,
+            bagfile=bagfile,
+            yamlfile=yamlfile,
+            topics=topics if topics is not None else InsertionPointDataBagParser.DEFAULT_TOPICS_OF_INTEREST,
+            bag_db=bag_db,
+        )
+
+        self.key_topic = self.get_topics_by_name("state/skin_entry")[0]
+        self.insertion_point_data = defaultdict(
+            lambda: {
+                "data": dict(),
+                "timestamps": dict(),
+            },
+        )
+
+    # __init__
+
+    def is_parsed(self):
+        return len(self.insertion_point_data) > 0
+    
+    # is_parsed
+
+    def determine_timestamps(self, inplace: bool = False):
+        assert (
+            self.target_timestamps is not None
+            or self.timestamp_ranges is not None
+        ), (
+            "You must configure the target timestamps for each of the insertion depths and/or the timestamp ranges"
+        )
+
+        timestamps = dict()
+        if self.target_timestamps is not None:
+            timestamps = self.determine_timestamps_closest_to_target(
+                self.key_topic,
+                self.target_timestamps,
+                ts_range=self.timestamp_ranges,
+            )
+
+        # if
+        else:
+            for depth, ts_range in self.timestamp_ranges.items():
+                insertionpt_msgs = self.get_all_messages(self.key_topic, ts_range=ts_range)
+
+                ts_depth = np.asarray([
+                    ts for ts, *_ in insertionpt_msgs
+                ])
+                if len(ts_depth) == 0:
+                    warnings.warn(f"Insertion point topic did not find any timestamps in range for depth {depth} mm.")
+                    continue
+
+                timestamps[depth] = self.determine_median_timestamp(ts_depth)
+
+        # for
+
+        if inplace:
+            self.timestamps = timestamps
+
+        return timestamps
+
+    # determine_timestamps
+
+    def parse_data(self):
+        assert self.timestamps is not None, (
+            "You must determine which timestamps to use for each of the insertions depths in order to "
+            "parse the insertion point data"
+        )
+
+        # topic names
+        insertionpt_topic = self.get_topics_by_name("state/skin_entry")[0]
+
+        for depth, target_ts in self.timestamps.items():
+            ts_range = self.timestamp_ranges.get(depth)
+
+            closest_inspt_ts, closest_inspt_msg = self.get_closest_message_to_timestamp(
+                insertionpt_topic,
+                target_ts,
+                ts_range=ts_range,
+            )
+            insertion_point = None
+            if closest_inspt_msg is not None:
+                closest_inspt_msg: Point
+                insertion_point = np.asarray(
+                    StageCoordinateConversions.RobotToStage(
+                        closest_inspt_msg.x,
+                        closest_inspt_msg.y,
+                        closest_inspt_msg.z,
+                    )
+                )
+
+            # if
+
+            self.insertion_point_data[depth]["data"]["insertion_point"]       = insertion_point
+            self.insertion_point_data[depth]["timestamps"]["insertion_point"] = closest_inspt_ts
+
+        # for
+
+        return self.insertion_point_data
+
+    # parse_data
+
+    def plot_results(self, odir: str = None, show: bool = False):
+        fig, ax = plt.subplots()
+
+        ts_topic_msgs: List[Tuple[int, str, Point]] = self.get_all_messages(self.key_topic)
+
+        ts_insertion_points = np.stack(
+            [
+                [ts, *StageCoordinateConversions.RobotToStage(msg.x, msg.y, msg.z)]
+                for ts, _, msg in ts_topic_msgs
+            ],
+            axis=0,
+        )
+        ts     = ts_insertion_points[:, 0]
+        points = ts_insertion_points[:, 1:]
+
+        ax.plot(ts, points, '.')
+        ax.legend(["x", "y", "z"])
+        ax.set_xlabel("timestamp")
+        ax.set_ylabel("Insertion Point Location (mm)")
+        ax.set_title(f"Insertion Point: {self.key_topic}")
+
+        if odir is not None:
+            os.makedirs(odir, exist_ok=True)
+            out_file = os.path.join(odir, "insertion_points.png")
+            fig.savefig(out_file)
+            print("Saved figure insertion point data to:", out_file)
+
+            out_file = os.path.join(odir, "insertion_points.csv")
+            pd.DataFrame(
+                ts_insertion_points,
+                columns=["timestamp", "x", "y", "z"],
+                index=None,
+            ).to_csv(
+                out_file,
+                header=True,
+                index=False,
+            )
+            print("Saved all insertion point data to:", out_file)
+
+        # if
+
+        if show:
+            plt.show()
+
+    # plot_results
+
+    def save_results(self, odir: str, filename: str = None):
+        filename = filename if filename is not None else "insertion_point_data.xlsx"
+
+        for depth, data_ts_dict in self.insertion_point_data.items():
+            sub_odir = os.path.join(odir, str(depth))
+            os.makedirs(sub_odir, exist_ok=True)
+
+            with pd.ExcelWriter(os.path.join(sub_odir, filename)) as xl_writer:
+                ts_df = pd.DataFrame.from_dict(data_ts_dict["timestamps"], orient='index')
+                ts_df.loc["target"]    = self.timestamps[depth]
+                ts_df.loc["range_min"] = self.timestamp_ranges[depth][0]
+                ts_df.loc["range_max"] = self.timestamp_ranges[depth][1]
+
+                ts_df.to_excel(
+                    xl_writer,
+                    sheet_name="ROS timestamps",
+                    index=True,
+                    header=False,
+                )
+
+                # write the insertion point
+                insertion_point = data_ts_dict["data"].get("insertion_point", None)
+                if insertion_point is not None:
+                    df = pd.Series(insertion_point, index=["x", "y", "z"])
+                    df.to_excel(
+                        xl_writer,
+                        sheet_name="insertion_point",
+                        index=False,
+                        header=True,
+                    )
+
+                # if
+
+            # with
+            print(
+                f"Saved insertion point data for insertion depth {depth} mm to:",
+                os.path.join(sub_odir, filename)
+            )
+
+        # for
+
+    # save_results
+
+# class: InsertionPointDataBagParser
 class InsertionExperimentBagParser( ExperimentBagParser ):
     DEFAULT_TOPICS_OF_INTEREST = {
-        "camera": CameraDataBagParser.DEFAULT_TOPICS_OF_INTEREST,
-        "robot" : RobotDataBagParser.DEFAULT_TOPICS_OF_INTEREST,
-        "needle": NeedleDataBagParser.DEFAULT_TOPICS_OF_INTEREST,
-        "fbg"   : FBGSensorDataBagParser.DEFAULT_TOPICS_OF_INTEREST,
+        "camera"         : CameraDataBagParser.DEFAULT_TOPICS_OF_INTEREST,
+        "robot"          : RobotDataBagParser.DEFAULT_TOPICS_OF_INTEREST,
+        "needle"         : NeedleDataBagParser.DEFAULT_TOPICS_OF_INTEREST,
+        "fbg"            : FBGSensorDataBagParser.DEFAULT_TOPICS_OF_INTEREST,
+        "insertion-point": InsertionPointDataBagParser.DEFAULT_TOPICS_OF_INTEREST,
     }
 
     def __init__(
@@ -1361,36 +1599,52 @@ class InsertionExperimentBagParser( ExperimentBagParser ):
             topics=self.topics_of_interest["camera"],
             bag_db=self.bag_db,
         )
+        self.insertion_point_parser = InsertionPointDataBagParser(
+            bagdir,
+            insertion_depths=self.insertion_depths,
+            bagfile=bagfile,
+            yamlfile=yamlfile,
+            topics=self.topics_of_interest["insertion-point"],
+            bag_db=self.bag_db,
+        )
 
         self._to_parse = {
-            "robot" : False,
-            "camera": False,
-            "needle": False,
-            "fbg"   : False,
+            "robot"          : False,
+            "camera"         : False,
+            "needle"         : False,
+            "fbg"            : False,
+            "insertion-point": False,
         }
 
     # __init__
 
     def configure(
         self,
-        parse_robot:  bool = False,
-        parse_camera: bool = False,
-        parse_needle: bool = False,
-        parse_fbg:    bool = False,
+        parse_robot:           bool = False,
+        parse_camera:          bool = False,
+        parse_needle:          bool = False,
+        parse_fbg:             bool = False,
+        parse_insertion_point: bool = False,
     ):
-        self._to_parse["robot"]  = parse_robot
-        self._to_parse["camera"] = parse_camera
-        self._to_parse["needle"] = parse_needle
-        self._to_parse["fbg"]    = parse_fbg
+        if parse_camera:
+            assert parse_robot, "Need to parse robot data if parsing camera data"
+            
+        self._to_parse["robot"]           = parse_robot
+        self._to_parse["camera"]          = parse_camera
+        self._to_parse["needle"]          = parse_needle
+        self._to_parse["fbg"]             = parse_fbg
+        self._to_parse["insertion-point"] = parse_insertion_point
+
 
     # configure
 
     def get_parsers(self) -> Dict[str, ExperimentBagParser]:
         return {
-            "robot" : self.robot_parser,
-            "camera": self.camera_parser,
-            "needle": self.needle_parser,
-            "fbg"   : self.fbg_parser,
+            "robot"          : self.robot_parser,
+            "camera"         : self.camera_parser,
+            "needle"         : self.needle_parser,
+            "fbg"            : self.fbg_parser,
+            "insertion-point": self.insertion_point_parser,
         }
 
     # get_parsers
@@ -1440,11 +1694,25 @@ class InsertionExperimentBagParser( ExperimentBagParser ):
 
         # if: camera
 
+        insertion_point_data       = None
+        insertion_point_timestamps = None
+        if self._to_parse["insertion-point"]:
+            self.insertion_point_parser.configure_timestamp_ranges(robot_timestamp_ranges)
+            if needle_timestamps is not None:
+                self.camera_parser.configure_target_timestamps(needle_timestamps)
+
+            insertion_point_timestamps = self.insertion_point_parser.determine_timestamps(inplace=True)
+
+            insertion_point_data = self.insertion_point_parser.parse_data()
+
+        # if
+
         return (
             robot_timestamp_ranges,
             needle_data,
             fbg_data,
             camera_data,
+            insertion_point_data,
         )
 
     # parse_data
