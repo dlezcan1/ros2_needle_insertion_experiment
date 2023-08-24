@@ -1523,8 +1523,8 @@ class InsertionPointDataBagParser(TimestampDependentExperimentBagParser):
                     df.to_excel(
                         xl_writer,
                         sheet_name="insertion_point",
-                        index=False,
-                        header=True,
+                        index=True,
+                        header=False,
                     )
 
                 # if
