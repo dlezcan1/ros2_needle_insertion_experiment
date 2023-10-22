@@ -35,5 +35,8 @@
         "/root/colcon_ws/install/hyperion_interrogator/lib/python3.8/site-packages",
         "/opt/ros/foxy/lib/python3.8/site-packages"
     ],
-    "cmake.configureOnOpen": false
+    "cmake.configureOnOpen": false,
+    "files.associations": {
+        "string": "cpp"
+    }
 }
