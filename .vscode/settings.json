@@ -15,7 +15,8 @@
         "/root/colcon_ws/install/insertion_point_publisher/lib/python3.8/site-packages",
         "/root/colcon_ws/build/hyperion_interrogator",
         "/root/colcon_ws/install/hyperion_interrogator/lib/python3.8/site-packages",
-        "/opt/ros/foxy/lib/python3.8/site-packages"
+        "/opt/ros/foxy/lib/python3.8/site-packages",
+        "/opt/ros/humble/lib/python3.10/site-packages/",
     ],
     "python.analysis.extraPaths": [
         "/root/colcon_ws/build/pgr_stereo_camera",
@@ -33,7 +34,8 @@
         "/root/colcon_ws/install/insertion_point_publisher/lib/python3.8/site-packages",
         "/root/colcon_ws/build/hyperion_interrogator",
         "/root/colcon_ws/install/hyperion_interrogator/lib/python3.8/site-packages",
-        "/opt/ros/foxy/lib/python3.8/site-packages"
+        "/opt/ros/foxy/lib/python3.8/site-packages",
+        "/opt/ros/humble/lib/python3.10/site-packages/",
     ],
     "cmake.configureOnOpen": false,
     "files.associations": {
