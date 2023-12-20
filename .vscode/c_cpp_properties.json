@@ -6,11 +6,12 @@
         "limitSymbolsToIncludedHeaders": false
       },
       "includePath": [
-        "/root/colcon_ws/install/needle_insertion_robot_translation_interfaces/include/**",
         "/opt/ros/foxy/include/**",
         "/opt/ros/humble/include/**",
-        "/root/colcon_ws/src/needle_insertion_experiment_setup/fbg_interrogator/sm130_interrogator_cpp/include/**",
-        "/root/colcon_ws/src/needle_insertion_experiment_setup/needle_insertion_robot/needle_insertion_robot/include/**",
+        "/colcon_ws/install/needle_insertion_robot_translation_interfaces/include/**",
+        "/colcon_ws/install/needle_shape_publisher_interfaces/include/**",
+        "/colcon_ws/src/needle_insertion_experiment_setup/fbg_interrogator/sm130_interrogator_cpp/include/**",
+        "/colcon_ws/src/needle_insertion_experiment_setup/needle_insertion_robot/needle_insertion_robot/include/**",
         "/usr/include/**"
       ],
       "name": "ROS",
