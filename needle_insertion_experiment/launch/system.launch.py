@@ -24,104 +24,112 @@ def generate_launch_description():
     arg_needle_sim = DeclareLaunchArgument(
         'sim_level_needle_sensing',
         default_value='1',
-        description="Simulation level: 1 - demo needle sensors, 2 - real needle sensors."
-        )
+        choices=["1", "2"],
+        description="Simulation level: 1 - demo needle sensors, 2 - real needle sensors.",
+    )
 
     arg_needle_numsignals = DeclareLaunchArgument(
         'needle_numSignals',
         default_value='200',
-        description='Needle: The number of signals to gather per FBG window.'
-        )
+        description='Needle: The number of signals to gather per FBG window.',
+    )
 
     arg_needle_optim_maxiter = DeclareLaunchArgument(
         'needle_optimMaxIterations',
         default_value="15",
-        description="Needle: The maximum number of iterations for needle shape optimizer."
-        )
+        description="Needle: The maximum number of iterations for needle shape optimizer.",
+    )
     
     arg_needle_temp_compensate = DeclareLaunchArgument(
         'needle_tempCompensate',
         default_value="True",
-        description="Needle: Whether to perform temperature compensation or not."
-        )
+        choices=["True", "False"],
+        description="Needle: Whether to perform temperature compensation or not.",
+    )
 
     arg_needle_paramFile = DeclareLaunchArgument(
         'needle_needleParamFile',
         default_value="7CH-4AA-0001-MCF-even_needle_params_2023-03-29_Jig-Calibration_best.json", #"needle_params_2021-08-16_Jig-Calibration_best.json",
-        description="Needle: JSON parameter file for FBG Needle"
+        description="Needle: JSON parameter file for FBG Needle",
     )
 
     # - interrogator
-    arg_interrogator_ip = DeclareLaunchArgument(
+    arg_interrogator_ip     = DeclareLaunchArgument(
         'interrogator_ipAddress',
         default_value="192.168.1.11",
-        description="Interrogator: IP address of FBG interrogator"
+        description="Interrogator: IP address of FBG interrogator",
+    )
+    arg_interrogator_type   = DeclareLaunchArgument(
+        'interrogator_interrogatorType',
+        default_value="hyperion",
+        choices=["sm130", "hyperion"],
+        description="The type of interrogator used that is communicating to the needle's sensors",
     )
 
     # - robot
     arg_robot_ip = DeclareLaunchArgument(
         'robot_ipAddress',
         default_value="192.168.1.33",
-        description="Robot: IP Address of Galil Controller"
+        description="Robot: IP Address of Galil Controller",
     )
     arg_robot_ns = DeclareLaunchArgument(
         'robot_ns',
         default_value='stage',
-        description="Robot: ROS Namespace for needle insertion robot"
+        description="Robot: ROS Namespace for needle insertion robot",
     )
 
     # - stereo camera system
     arg_camera_vis    = DeclareLaunchArgument(
         'camera_visualization',
-        default_value='false',
-        choices=['true', 'false'],
+        default_value='False',
+        choices=['True', 'False'],
         description="Camera: Whether to use stereo visualization or not",
     )
     arg_camera_ns = DeclareLaunchArgument(
         'camera_ns',
         default_value='camera',
-        description="Camera: ROS namespace for stereo camera setup"
+        description="Camera: ROS namespace for stereo camera setup",
     )
     arg_camera_sync = DeclareLaunchArgument(
         'camera_syncStereo',
-        default_value='true', 
-        choices=['true', 'false'],
-        description="Camera: Whether to publish synchronized stereo iamge pairs"
+        default_value='True', 
+        choices=["True", "False"],
+        description="Camera: Whether to publish synchronized stereo iamge pairs",
     )
     arg_camera_imgproc = DeclareLaunchArgument(
         'camera_useImageProc',
-        default_value='false',
-        choices=['true', 'false'],
-        description="Camera: Whether to use image processing ROS publishing for image rectification or not."
+        default_value='False',
+        choices=["True", "False"],
+        description="Camera: Whether to use image processing ROS publishing for image rectification or not.",
     )
 
     # - data recording
     arg_data_record = DeclareLaunchArgument(
         'data_record',
-        default_value='false',
-        choices=['true', 'false'],
-        description="Data: Whether to record data or not."
+        default_value='False',
+        choices=["True", "False"],
+        description="Data: Whether to record data or not.",
     )
     arg_data_dirout = DeclareLaunchArgument(
         'data_bagDirOut',
         default_value='insertion_experiment',
-        description="Data: The Output ROS 2 bag file directory"
+        description="Data: The Output ROS 2 bag file directory",
     )
     arg_data_topics = DeclareLaunchArgument(
         'data_recordTopics',
         default_value='-a',
-        description="Data: Which topics to record (default is all topics)"
+        description="Data: Which topics to record (default is all topics)",
     )
     arg_data_comp = DeclareLaunchArgument(
         'data_useCompression',
-        default_value='false',
-        choices=['true', 'false'],
-        description="Data: Whether to compress the bag files or not."
+        default_value='False',
+        choices=["True", "False"],
+        description="Data: Whether to compress the bag files or not.",
     )
     arg_data_maxsize = DeclareLaunchArgument(
         'data_maxBagSize',
         default_value='0',
-        description="Data: The maximum bag size (bytes) until bag is split. 0 => no splitting."
+        description="Data: The maximum bag size (bytes) until bag is split. 0 => no splitting.",
     )
 
 
@@ -134,12 +142,13 @@ def generate_launch_description():
             ])
         ),
         launch_arguments={
-            'sim_level_needle_sensing': LaunchConfiguration( 'sim_level_needle_sensing' ),
-            'needleParamFile'         : LaunchConfiguration( 'needle_needleParamFile' ),
-            'numSignals'              : LaunchConfiguration( 'needle_numSignals' ),
-            'optimMaxIterations'      : LaunchConfiguration( 'needle_optimMaxIterations' ),
-            'interrogatorIP'          : LaunchConfiguration( 'interrogator_ipAddress' ),
-            'tempCompensate'          : LaunchConfiguration( 'needle_tempCompensate' ),
+            'sim_level_needle_sensing': LaunchConfiguration( arg_needle_sim.name ),
+            'needleParamFile'         : LaunchConfiguration( arg_needle_paramFile.name ),
+            'numSignals'              : LaunchConfiguration( arg_needle_numsignals.name ),
+            'optimMaxIterations'      : LaunchConfiguration( arg_needle_optim_maxiter.name ),
+            'interrogatorIP'          : LaunchConfiguration( arg_interrogator_ip.name ),
+            'tempCompensate'          : LaunchConfiguration( arg_needle_temp_compensate.name ),
+            'interrogatorType'        : LaunchConfiguration( arg_interrogator_type.name ),
         }.items(),
     )
 
@@ -151,8 +160,8 @@ def generate_launch_description():
             ])
         ),
         launch_arguments={
-            'ip': LaunchConfiguration('robot_ipAddress'),
-            'ns': LaunchConfiguration('robot_ns'),
+            'ip': LaunchConfiguration(arg_robot_ip.name),
+            'ns': LaunchConfiguration(arg_robot_ns.name),
         }.items(),
     )
 
@@ -176,11 +185,11 @@ def generate_launch_description():
             ]),
         ),
         launch_arguments={
-            'ns'          : LaunchConfiguration('camera_ns'),
-            'syncStereo'  : LaunchConfiguration('camera_syncStereo'),
-            'useImageProc': LaunchConfiguration('camera_useImageProc'),
+            'ns'          : LaunchConfiguration( arg_camera_ns.name),
+            'syncStereo'  : LaunchConfiguration( arg_camera_sync.name ),
+            'useImageProc': LaunchConfiguration( arg_camera_imgproc.name ),
         }.items(),
-        condition=LaunchConfigurationEquals('camera_visualization', 'true'),
+        condition=LaunchConfigurationEquals(arg_camera_vis.name, 'True'),
     )
 
     # - gt shape from stereo vision
@@ -190,7 +199,7 @@ def generate_launch_description():
                 pkg_needle_gt_shape, 'launch', 'needle_reconstruct.launch.py'
             ]),
         ),
-        condition=LaunchConfigurationEquals('camera_visualization', 'true'),
+        condition=LaunchConfigurationEquals(arg_camera_vis.name, 'True'),
     )
 
     # - ros2 bag for data collection
@@ -201,12 +210,12 @@ def generate_launch_description():
             ]),
         ),
         launch_arguments={
-            'bagDirOut'     : LaunchConfiguration('data_bagDirOut'),
-            'useCompression': LaunchConfiguration('data_useCompression'),
-            'maxBagSize'    : LaunchConfiguration('data_maxBagSize'),
-            'topics'        : LaunchConfiguration('data_recordTopics'),
+            'bagDirOut'     : LaunchConfiguration(arg_data_dirout.name),
+            'useCompression': LaunchConfiguration(arg_data_comp.name),
+            'maxBagSize'    : LaunchConfiguration(arg_data_maxsize.name),
+            'topics'        : LaunchConfiguration(arg_data_topics.name),
         }.items(),
-        condition=LaunchConfigurationEquals('data_record', 'true')
+        condition=LaunchConfigurationEquals(arg_data_record.name, 'True'),
     )
 
     # launch description setup
@@ -220,6 +229,7 @@ def generate_launch_description():
 
     # -- interrogator
     ld.add_action( arg_interrogator_ip )
+    ld.add_action( arg_interrogator_type )
 
     # -- robot
     ld.add_action( arg_robot_ip )

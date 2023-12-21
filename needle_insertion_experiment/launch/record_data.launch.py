@@ -37,9 +37,9 @@ def generate_launch_description():
     )
     
     # launch configurations
-    lc_dirout = PathJoinSubstitution([LaunchConfiguration('bagDirOut'), now])
+    lc_dirout     = PathJoinSubstitution([LaunchConfiguration('bagDirOut'), now])
     lc_maxbagsize = LaunchConfiguration('maxBagSize')
-    lc_topics = LaunchConfiguration('topics')
+    lc_topics     = LaunchConfiguration('topics')
 
     # processes
     proc_bag_uncomp = ExecuteProcess(

@@ -15,14 +15,14 @@ def generate_launch_description():
     arg_namespace = DeclareLaunchArgument(
         'ns',
         default_value="stage",
-        description="ROS namespace for the robot launching"
+        description="ROS namespace for the robot launching",
     )
     
     # - robot
     arg_robot_ip = DeclareLaunchArgument(
         'robot_ipAddress',
         default_value="192.168.1.201",
-        description="Robot: IP Address of Galil Controller"
+        description="Robot: IP Address of Galil Controller",
     )
     
 
