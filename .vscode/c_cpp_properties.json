@@ -1,4 +1,5 @@
 {
+<<<<<<< Updated upstream
   "configurations": [
     {
       "browse": {
@@ -22,4 +23,29 @@
     }
   ],
   "version": 4
+=======
+    "configurations": [
+        {
+            "browse": {
+                "databaseFilename": "${workspaceFolder}/.vscode/browse.vc.db",
+                "limitSymbolsToIncludedHeaders": false
+            },
+            "includePath": [
+                "/root/colcon_ws/install/needle_insertion_robot_translation_interfaces/include/**",
+                "/opt/ros/foxy/include/**",
+                "/opt/ros/humble/include/**",
+                "/root/colcon_ws/src/needle_insertion_experiment_setup/fbg_interrogator/sm130_interrogator_cpp/include/**",
+                "/root/colcon_ws/src/needle_insertion_experiment_setup/needle_insertion_robot/needle_insertion_robot/include/**",
+                "/usr/include/**",
+                "${workspaceFolder}/needle_insertion_robot/needle_insertion_robot/include"
+            ],
+            "name": "ROS",
+            "intelliSenseMode": "gcc-arm64",
+            "compilerPath": "/usr/bin/gcc",
+            "cStandard": "gnu11",
+            "cppStandard": "c++14"
+        }
+    ],
+    "version": 4
+>>>>>>> Stashed changes
 }
