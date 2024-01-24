@@ -19,12 +19,11 @@ for idir in $IN_DIR/Insertion*; do
     ros2 run experiment_ros2bag process_bag \
         $idir \
         --odir $odir \
-        --use-insertion-depths-only \
         $@ || failure=1
     
-    # if [[ $failure = 1 ]]; then
-    #     break
-    # fi
+    if [[ $failure = 1 ]]; then
+        break
+    fi
 
     echo "Finished with insertion: $insertion"
     echo

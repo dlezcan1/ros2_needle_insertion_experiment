@@ -707,7 +707,8 @@ class RobotDataBagParser(ExperimentBagParser):
 
         # dictionary of directory name and pose
         self.unique_robot_poses: Dict[str, np.ndarray] = list() 
-        self.unique_robot_poses_timestamp_ranges  = None
+        self.unique_robot_poses_keys_timestamp_ranges  = None
+        self.unique_robot_poses_keys : Dict[str, PoseStamped] = dict()
 
     # __init__
 
@@ -757,12 +758,12 @@ class RobotDataBagParser(ExperimentBagParser):
         # for
 
         # post-process the pose timestamp ranges
-        robot_pose_timestamp_ranges : Dict[PoseStamped, Tuple[float, float]] =  {
-            msg: (ts_lo, ts_hi)
-            for msg, ts_lo, ts_hi in robot_pose_time_lo_hi
-        }
+        # robot_pose_timestamp_ranges : Dict[Pose, Tuple[float, float]] =  {
+        #     msg.pose: (ts_lo, ts_hi)
+        #     for msg, ts_lo, ts_hi in robot_pose_time_lo_hi
+        # }
 
-        return robot_pose_timestamp_ranges
+        return robot_pose_time_lo_hi
 
     # identify_unique_robot_poses
 
@@ -776,7 +777,7 @@ class RobotDataBagParser(ExperimentBagParser):
 
         elif (
             not self.use_insertion_depths
-            and (self.unique_robot_poses_timestamp_ranges is not None)
+            and (self.unique_robot_poses_keys_timestamp_ranges is not None)
         ):
             parsed = True
 
@@ -808,7 +809,7 @@ class RobotDataBagParser(ExperimentBagParser):
         insertion_depth_timestamp_ranges = defaultdict(list)
 
         for i, (ts, topic, msg) in enumerate(bag_rows):
-            msg: PoseStamped
+            msg: Pose
             insertion_depth = self.get_insertion_depth(msg)
 
             for target_depth in self.insertion_depths:
@@ -838,12 +839,13 @@ class RobotDataBagParser(ExperimentBagParser):
 
         tolerance = 1e-6
         
-        self.unique_robot_poses_timestamp_ranges = self.identify_unique_robot_poses(
+        unique_robot_poses_msgs_timestamp_ranges = self.identify_unique_robot_poses(
             time_in_pose_seconds=3.0,
             pose_tolerance=tolerance,
         )
+        self.unique_robot_poses_keys_timestamp_ranges = dict()
 
-        for msg, (ts_lo, ts_hi) in self.unique_robot_poses_timestamp_ranges.items():
+        for msg, ts_lo, ts_hi in unique_robot_poses_msgs_timestamp_ranges:
             msg: PoseStamped
             insertion_depth = self.get_insertion_depth(msg)
 
@@ -857,11 +859,13 @@ class RobotDataBagParser(ExperimentBagParser):
                 pose_key = "_".join(
                     map(
                         str,
-                        np.round(tf[:3, 3], tolerance)
+                        np.round(tf[:3, 3], decimals=int(-np.log10(tolerance)))
                     )
                 )
                 unique_robot_poses[pose_key] = tf
-                self.trial
+                self.trial_keys.append(pose_key)
+                self.unique_robot_poses_keys_timestamp_ranges[pose_key] = (ts_lo, ts_hi)
+                self.unique_robot_poses_keys[pose_key] = msg
                 
                 break
 
@@ -870,7 +874,7 @@ class RobotDataBagParser(ExperimentBagParser):
             
         self.unique_robot_poses = unique_robot_poses
 
-        return self.unique_robot_poses
+        return self.unique_robot_poses_keys_timestamp_ranges
 
     # parse_data_unique_poses
 
@@ -926,11 +930,42 @@ class RobotDataBagParser(ExperimentBagParser):
         )
         filename = filename if filename is not None else "robot_timestamp_ranges.csv"
 
-        ts_ranges_df = pd.DataFrame.from_dict(
-            self.insertion_depth_timestamp_ranges,
-            orient='index',
-            columns=['ts_min', 'ts_max'],
-        )
+        if self.use_insertion_depths:
+            ts_ranges_df = pd.DataFrame.from_dict(
+                self.insertion_depth_timestamp_ranges,
+                orient='index',
+                columns=['ts_min', 'ts_max'],
+            )
+        else:
+            data_rows = [
+                (
+                    self.unique_robot_poses_keys[trial_key].pose.position.x,
+                    self.unique_robot_poses_keys[trial_key].pose.position.y,
+                    self.unique_robot_poses_keys[trial_key].pose.position.z,
+                    self.unique_robot_poses_keys[trial_key].pose.orientation.w,
+                    self.unique_robot_poses_keys[trial_key].pose.orientation.x,
+                    self.unique_robot_poses_keys[trial_key].pose.orientation.y,
+                    self.unique_robot_poses_keys[trial_key].pose.orientation.z,
+                    ts_lo,
+                    ts_hi,
+                )
+                for trial_key, (ts_lo, ts_hi) in self.unique_robot_poses_keys_timestamp_ranges.items()
+            ]
+            ts_ranges_df = pd.DataFrame.from_records(
+                data_rows,
+                columns=[
+                    'position_x',
+                    'position_y',
+                    'position_z`',
+                    'orientation_w',
+                    'orientation_x',
+                    'orientation_y',
+                    'orientation_z',
+                    'ts_min', 
+                    'ts_max',
+                ],
+            )
+
         ts_ranges_df["delta ts"] = ts_ranges_df["ts_max"] - ts_ranges_df["ts_min"]
 
         os.makedirs(odir, exist_ok=True)
@@ -966,8 +1001,11 @@ class RobotDataBagParser(ExperimentBagParser):
     # save_results
 
     @classmethod
-    def get_insertion_depth(cls, needle_pose_msg: PoseStamped):
+    def get_insertion_depth(cls, needle_pose_msg: Union[Pose,PoseStamped]):
         """ Returns the insertion depth of the state/needle_pose topic message """
+        if isinstance(needle_pose_msg, Pose):
+            return needle_pose_msg.position.z
+        
         return needle_pose_msg.pose.position.z
 
     # get_insertion_depth
@@ -994,6 +1032,7 @@ class NeedleDataBagParser(TimestampDependentExperimentBagParser):
             yamlfile: str = None,
             topics: List[str] = None,
             bag_db: sqlite3.Connection = None,
+            use_insertion_depths_only: bool = True,
     ):
         super().__init__(
             bagdir,
@@ -1002,6 +1041,7 @@ class NeedleDataBagParser(TimestampDependentExperimentBagParser):
             yamlfile=yamlfile,
             topics=topics if topics is not None else NeedleDataBagParser.DEFAULT_TOPICS_OF_INTEREST,
             bag_db=bag_db,
+            use_insertion_depths_only=use_insertion_depths_only,
         )
 
         # parsed data results
@@ -1228,7 +1268,8 @@ class FBGSensorDataBagParser(TimestampDependentExperimentBagParser):
         bagfile: str = None,
         yamlfile: str = None,
         topics: List[str] = None,
-        bag_db: sqlite3.Connection = None
+        bag_db: sqlite3.Connection = None,
+        use_insertion_depths_only: bool = True,
     ):
         super().__init__(
             bagdir,
@@ -1237,6 +1278,7 @@ class FBGSensorDataBagParser(TimestampDependentExperimentBagParser):
             yamlfile=yamlfile,
             topics=topics if topics is not None else FBGSensorDataBagParser.DEFAULT_TOPICS_OF_INTEREST,
             bag_db=bag_db,
+            use_insertion_depths_only=use_insertion_depths_only,
         )
 
         # parsed data results
@@ -1270,8 +1312,8 @@ class FBGSensorDataBagParser(TimestampDependentExperimentBagParser):
         prc_topic = self.get_topics_by_name("sensor/processed")[0]
         crv_topic = self.get_topics_by_name("state/curvatures")[0]
 
-        for depth in self.insertion_depths:
-            ts_range = self.timestamp_ranges[depth]
+        for trial_key in self.trial_keys:
+            ts_range = self.timestamp_ranges[trial_key]
 
             # get the timestamp and messages
             raw_ts_topic_msg = self.get_messages(
@@ -1291,19 +1333,19 @@ class FBGSensorDataBagParser(TimestampDependentExperimentBagParser):
             )
 
             # parse the results
-            self.fbg_sensor_data[depth]["raw"] = np.stack(
+            self.fbg_sensor_data[trial_key]["raw"] = np.stack(
                 [ np.append(ts, msg.data) for ts, _, msg in raw_ts_topic_msg],
                 axis=0
             )
             try:
-                self.fbg_sensor_data[depth]["processed"] = np.stack(
+                self.fbg_sensor_data[trial_key]["processed"] = np.stack(
                     [ np.append(ts, msg.data) for ts, _, msg in prc_ts_topic_msg ],
                     axis=0
                 )
             except ValueError:
-                self.fbg_sensor_data[depth]["processed"] = np.zeros_like(self.fbg_sensor_data[depth]["raw"])
+                self.fbg_sensor_data[trial_key]["processed"] = np.zeros_like(self.fbg_sensor_data[depth]["raw"])
 
-            self.fbg_sensor_data[depth]["curvatures"] = np.stack(
+            self.fbg_sensor_data[trial_key]["curvatures"] = np.stack(
                 [ np.append(ts, msg.data) for ts, _, msg in crv_ts_topic_msg ],
                 axis=0
             )
@@ -1361,6 +1403,7 @@ class FBGSensorDataBagParser(TimestampDependentExperimentBagParser):
             nrows=2,
             ncols=num_aas,
             sharex=True,
+            sharey='col',
             figsize=(18, 12),
         )
 
@@ -1382,8 +1425,6 @@ class FBGSensorDataBagParser(TimestampDependentExperimentBagParser):
             )
             axs_wls[1, aa_i].legend(ch_names)
             axs_wls[1, aa_i].set_xlabel("Timestamps")
-
-            axs_wls[1, 0].get_shared_y_axes().join(axs_wls[1, 0], axs_wls[1, aa_i])
 
         # for
         axs_wls[0, 0].set_ylabel("Raw Wavelengths (nm)")
@@ -1823,6 +1864,9 @@ class InsertionExperimentBagParser( ExperimentBagParser ):
     # get_parsers
 
     def parse_data(self):
+        if not self.use_insertion_depths:
+            print("Experiment bag parser parsing using unique robot poses.")
+
         robot_timestamp_ranges = {
             depth: (None, None)
             for depth in self.insertion_depths
@@ -1876,8 +1920,6 @@ class InsertionExperimentBagParser( ExperimentBagParser ):
         if self._to_parse["insertion-point"]:
             self.insertion_point_parser.configure_trial_keys(self.trial_keys)
             self.insertion_point_parser.configure_timestamp_ranges(robot_timestamp_ranges)
-            if needle_timestamps is not None:
-                self.camera_parser.configure_target_timestamps(needle_timestamps)
 
             insertion_point_timestamps = self.insertion_point_parser.determine_timestamps(inplace=True)
 
