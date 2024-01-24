@@ -42,6 +42,9 @@
         "/colcon_ws/build/needle_shape_publisher_interfaces/rosidl_generator_py",
         "/opt/ros/humble/lib/python3.10/site-packages",
         "/opt/ros/humble/local/lib/python3.10/dist-packages",
+        "./needle_shape_publisher/needle_shape_publisher",
+        "./stereo_camera_needle/pgr_stereo_camera",
+        "./needle_insertion_robot/needle_insertion_robot_translation"
     ],
     "cmake.configureOnOpen": false,
     "files.associations": {

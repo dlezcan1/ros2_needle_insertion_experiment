@@ -51,6 +51,12 @@ def __get_argparser():
         action="store_true"
     )
 
+    parser.add_argument(
+        "--use-insertion-depths-only",
+        action="store_true",
+        help="Use the insertion depths instead of the unique robot poses"
+    )
+
     for data_type, topics in InsertionExperimentBagParser.DEFAULT_TOPICS_OF_INTEREST.items():
         parser.add_argument(
             f"--parse-{data_type}",
@@ -98,6 +104,7 @@ def main( args=None ):
         bagfile=ARGS.bag_file,
         yamlfile=ARGS.yaml_file,
         topics=topics_of_interest,
+        use_insertion_depths_only=ARGS.use_insertion_depths_only,
     )
 
     bag.configure(
