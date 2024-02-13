@@ -31,10 +31,22 @@ class BagFileParser:
 
         # create a message type map (from https://github.com/ros2/rosbag2/issues/473 )
         topics_data     = self.cursor.execute( "SELECT id, name, type FROM topics" ).fetchall()
-        self.topic_type = { name_of: type_of for id_of, name_of, type_of in topics_data }
-        self.topic_id   = { name_of: id_of for id_of, name_of, type_of in topics_data }
-        self.topic_name = { id_of: name_of for id_of, name_of, type_of in topics_data }
-        self.topic_msg  = { name_of: get_message( type_of ) for id_of, name_of, type_of in topics_data }
+        self.topic_type = dict()
+        self.topic_id   = dict()
+        self.topic_name = dict()
+        self.topic_msg  = dict()
+        for id_of, name_of, type_of in topics_data:
+            try:
+                self.topic_msg[name_of]  = get_message( type_of )
+                self.topic_type[name_of] = type_of
+                self.topic_id[name_of]   = id_of
+                self.topic_name[id_of]   = name_of
+            
+            # try
+            except ModuleNotFoundError as e:
+                print(f"WARNING: topic {name_of} cannot parse message {type_of} - {e.msg}")
+
+        # for
 
     # __init__
 

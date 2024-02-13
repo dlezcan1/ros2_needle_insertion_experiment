@@ -361,7 +361,7 @@ class CameraDataBagParser(TimestampDependentExperimentBagParser):
                 # if
 
                 if len(ts_depth) == 0: # skip this one
-                    warnings.warn(f"Camera data did not have any timestamp information for insertion depth {trial_key} mm")
+                    warnings.warn(f"Camera data did not have any timestamp information for experiment key: {trial_key}")
                     continue
 
                 timestamps[trial_key] = self.determine_median_timestamp(ts_depth)
@@ -840,7 +840,7 @@ class RobotDataBagParser(ExperimentBagParser):
         tolerance = 1e-6
         
         unique_robot_poses_msgs_timestamp_ranges = self.identify_unique_robot_poses(
-            time_in_pose_seconds=3.0,
+            time_in_pose_seconds=1.0,
             pose_tolerance=tolerance,
         )
         self.unique_robot_poses_keys_timestamp_ranges = dict()
@@ -849,26 +849,20 @@ class RobotDataBagParser(ExperimentBagParser):
             msg: PoseStamped
             insertion_depth = self.get_insertion_depth(msg)
 
-            for target_depth in self.insertion_depths:
-                if abs(target_depth - insertion_depth) > tolerance:
-                    continue
-                
-                tf = np.eye(4)
-                tf[:3, 3], tf[:3, :3] = nsp_util.msg2pose(msg.pose)
+            tf = np.eye(4)
+            tf[:3, 3], tf[:3, :3] = nsp_util.msg2pose(msg.pose)
 
-                pose_key = "_".join(
-                    map(
-                        str,
-                        np.round(tf[:3, 3], decimals=int(-np.log10(tolerance)))
-                    )
+            pose_key = "_".join(
+                map(
+                    str,
+                    np.round(tf[:3, 3], decimals=int(-np.log10(tolerance)))
                 )
-                unique_robot_poses[pose_key] = tf
-                self.trial_keys.append(pose_key)
-                self.unique_robot_poses_keys_timestamp_ranges[pose_key] = (ts_lo, ts_hi)
-                self.unique_robot_poses_keys[pose_key] = msg
+            )
+            unique_robot_poses[pose_key] = tf
+            self.trial_keys.append(pose_key)
+            self.unique_robot_poses_keys_timestamp_ranges[pose_key] = (ts_lo, ts_hi)
+            self.unique_robot_poses_keys[pose_key] = msg
                 
-                break
-
             # for
         # for
             
@@ -993,7 +987,7 @@ class RobotDataBagParser(ExperimentBagParser):
                 index=False,
             )
             print(
-                f"Saved robot pose for insertion depth {trial_key} mm to:",
+                f"Saved robot pose for experiment key: {trial_key} to:",
                 os.path.join(sub_odir, "robot_pose.csv")
             )
 
@@ -1244,7 +1238,7 @@ class NeedleDataBagParser(TimestampDependentExperimentBagParser):
             # with
 
             print(
-                f"Saved needle shape data for insertion depth {trial_key} mm to:",
+                f"Saved needle shape data for experiment key: {trial_key} to:",
                 os.path.join(sub_odir, filename)
             )
 
@@ -1343,7 +1337,7 @@ class FBGSensorDataBagParser(TimestampDependentExperimentBagParser):
                     axis=0
                 )
             except ValueError:
-                self.fbg_sensor_data[trial_key]["processed"] = np.zeros_like(self.fbg_sensor_data[depth]["raw"])
+                self.fbg_sensor_data[trial_key]["processed"] = np.zeros_like(self.fbg_sensor_data[trial_key]["raw"])
 
             self.fbg_sensor_data[trial_key]["curvatures"] = np.stack(
                 [ np.append(ts, msg.data) for ts, _, msg in crv_ts_topic_msg ],
@@ -1403,7 +1397,7 @@ class FBGSensorDataBagParser(TimestampDependentExperimentBagParser):
             nrows=2,
             ncols=num_aas,
             sharex=True,
-            sharey='col',
+            sharey='row',
             figsize=(18, 12),
         )
 
@@ -1442,11 +1436,11 @@ class FBGSensorDataBagParser(TimestampDependentExperimentBagParser):
 
         axs_crvs[0].plot(ts_curvatures[:, 0], ts_curvatures[:, 1::2], '.')
         axs_crvs[0].set_ylabel("X Curvature")
-        axs_crvs[0].legend(ch_names)
+        axs_crvs[0].legend(aa_names)
 
         axs_crvs[1].plot(ts_curvatures[:, 0], ts_curvatures[:, 2::2], '.')
         axs_crvs[1].set_ylabel("Y Curvature")
-        axs_crvs[1].legend(ch_names)
+        axs_crvs[1].legend(aa_names)
 
         fig_crvs.suptitle(f"Curvatures Sensed by FBG Sensors: {crv_topic}")
 
@@ -1529,7 +1523,7 @@ class FBGSensorDataBagParser(TimestampDependentExperimentBagParser):
             # with
 
             print(
-                f"Saved FBG sensor data for insertion depth {depth} mm to:",
+                f"Saved FBG sensor data for experiment key: {depth} to:",
                 os.path.join(sub_odir, filename)
             )
 
@@ -1738,7 +1732,7 @@ class InsertionPointDataBagParser(TimestampDependentExperimentBagParser):
 
             # with
             print(
-                f"Saved insertion point data for insertion depth {trial_key} mm to:",
+                f"Saved insertion point data for experiment key: {trial_key} to:",
                 os.path.join(sub_odir, filename)
             )
 
