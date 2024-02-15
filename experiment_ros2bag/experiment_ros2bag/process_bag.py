@@ -29,13 +29,20 @@ def __get_argparser():
         required=False,
     )
 
-    parser.add_argument(
+    insertion_trial_group = parser.add_mutually_exclusive_group(
+        required=True,
+    )
+    insertion_trial_group.add_argument(
         "--insertion-depths",
         nargs="+",
         type=float,
         default=list(),
-        required=True,
         help="The insertion depths used in this experiment",
+    )
+    insertion_trial_group.add_argument(
+        "--use-unique-robot-poses",
+        action="store_true",
+        help="Use the the unique robot poses as an experiment trial key"
     )
 
     parser.add_argument(
@@ -49,12 +56,6 @@ def __get_argparser():
     parser.add_argument(
         "--show-plots",
         action="store_true"
-    )
-
-    parser.add_argument(
-        "--use-insertion-depths-only",
-        action="store_true",
-        help="Use the insertion depths instead of the unique robot poses"
     )
 
     for data_type, topics in InsertionExperimentBagParser.DEFAULT_TOPICS_OF_INTEREST.items():
@@ -104,7 +105,7 @@ def main( args=None ):
         bagfile=ARGS.bag_file,
         yamlfile=ARGS.yaml_file,
         topics=topics_of_interest,
-        use_insertion_depths_only=ARGS.use_insertion_depths_only,
+        use_insertion_depths_only=not ARGS.use_unique_robot_poses,
     )
 
     bag.configure(
