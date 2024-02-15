@@ -217,6 +217,7 @@ class TimestampDependentExperimentBagParser(ExperimentBagParser, ABC):
     @staticmethod
     def determine_median_timestamp(timestamps: Union[List, np.ndarray]):
         """ Determine which timestamp is the median one"""
+        assert len(timestamps) > 0, "There needs to be at least one timestamp!"
         timestamps = np.asarray(timestamps)
 
         median_ts = np.median(timestamps)
@@ -756,6 +757,13 @@ class RobotDataBagParser(ExperimentBagParser):
             # else
 
         # for
+                
+        robot_pose_time_lo_hi = list(
+            filter(
+                lambda msg_tslo_tshi: (msg_tslo_tshi[2] - msg_tslo_tshi[1]) >= time_in_pose_seconds * 1e9,
+                robot_pose_time_lo_hi
+            )
+        )
 
         # post-process the pose timestamp ranges
         # robot_pose_timestamp_ranges : Dict[Pose, Tuple[float, float]] =  {
@@ -840,7 +848,7 @@ class RobotDataBagParser(ExperimentBagParser):
         tolerance = 1e-6
         
         unique_robot_poses_msgs_timestamp_ranges = self.identify_unique_robot_poses(
-            time_in_pose_seconds=1.0,
+            time_in_pose_seconds=0.05,
             pose_tolerance=tolerance,
         )
         self.unique_robot_poses_keys_timestamp_ranges = dict()
@@ -1076,12 +1084,18 @@ class NeedleDataBagParser(TimestampDependentExperimentBagParser):
         )
 
         timestamps = dict()
+        trial_keys_to_remove = list()
         if inplace:
             timestamps = self.timestamps
 
         kappac_topic = self.get_topics_by_name("state/kappac")[0]
         for trial_key, ts_range in self.timestamp_ranges.items():
             kappac_msgs = self.get_all_messages(kappac_topic, ts_range=ts_range)
+            if len(kappac_msgs) == 0:
+                warnings.warn(f"Experiment trial key {trial_key} does not have any messages in range: {ts_range}")
+                trial_keys_to_remove.append(trial_key)
+                continue
+            # if
 
             viable_ts_msgs = list()
             for ts, _, kc_msg in kappac_msgs:
@@ -1107,6 +1121,25 @@ class NeedleDataBagParser(TimestampDependentExperimentBagParser):
 
             timestamps[trial_key] = best_ts
 
+        # for
+            
+        for trial_key in trial_keys_to_remove:
+            self.trial_keys.remove(trial_key)
+            try:
+                self.target_timestamps.pop(trial_key)
+            except: 
+                pass
+
+            try:
+                self.timestamp_ranges.pop(trial_key)
+            except:
+                pass
+
+            try:
+                self.timestamps.pop(trial_key)
+            except:
+                pass
+        
         # for
 
         return timestamps
